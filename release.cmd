@@ -36,7 +36,7 @@ if errorlevel 1 (
 
 REM Build
 echo Building...
-go build .
+go build ./pkg/config233
 if errorlevel 1 (
     echo Error: Build failed
     exit /b 1
