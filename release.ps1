@@ -1,3 +1,7 @@
+# Ensure we're in the script directory
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location $scriptDir
+
 Write-Host "Config233-Go Auto Release Script" -ForegroundColor Green
 Write-Host "================================" -ForegroundColor Green
 

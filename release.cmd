@@ -1,6 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
 
+REM Ensure we're in the script directory
+cd /d "%~dp0"
+
 echo Config233-Go Auto Release Script
 echo ================================
 
