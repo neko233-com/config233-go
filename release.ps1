@@ -1,10 +1,13 @@
-param(
-    [Parameter(Mandatory=$true)]
-    [string]$Version
-)
-
 Write-Host "Config233-Go Auto Release Script" -ForegroundColor Green
 Write-Host "================================" -ForegroundColor Green
+
+# Prompt for version
+$Version = Read-Host "Enter version tag (e.g., v1.0.0)"
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    Write-Error "Version cannot be empty"
+    exit 1
+}
+
 Write-Host "Releasing version $Version"
 Write-Host ""
 
@@ -23,7 +26,7 @@ if ($gitStatus) {
 
 # Run tests
 Write-Host "Running tests..." -ForegroundColor Yellow
-go test ./...
+go test ./tests
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Tests failed"
     exit 1

@@ -147,14 +147,18 @@ cfg.AddConfigHandler("xlsx", handler)
 ### 使用批处理脚本 (Windows)
 
 ```cmd
-release.cmd v1.0.0
+.\release.cmd
 ```
+
+脚本会提示您输入版本标签。
 
 ### 使用 PowerShell 脚本
 
 ```powershell
-.\release.ps1 -Version v1.0.0
+.\release.ps1
 ```
+
+脚本会提示您输入版本标签。
 
 发布脚本会：
 1. 检查工作目录是否干净

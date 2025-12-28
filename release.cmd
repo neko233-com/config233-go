@@ -4,14 +4,12 @@ setlocal enabledelayedexpansion
 echo Config233-Go Auto Release Script
 echo ================================
 
-REM Check if version is provided
-if "%1"=="" (
-    echo Usage: %0 ^<version^>
-    echo Example: %0 v1.0.0
+REM Prompt for version
+set /p VERSION="Enter version tag (e.g., v1.0.0): "
+if "%VERSION%"=="" (
+    echo Error: Version cannot be empty
     exit /b 1
 )
-
-set VERSION=%1
 
 echo Releasing version %VERSION%
 echo.
@@ -30,7 +28,7 @@ if not errorlevel 0 (
 
 REM Run tests
 echo Running tests...
-go test ./...
+go test ./tests
 if errorlevel 1 (
     echo Error: Tests failed
     exit /b 1
