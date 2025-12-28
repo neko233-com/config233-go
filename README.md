@@ -150,7 +150,7 @@ cfg.AddConfigHandler("xlsx", handler)
 .\release.cmd
 ```
 
-脚本会提示您输入版本标签。
+CMD脚本会调用PowerShell脚本执行发布流程。
 
 ### 使用 PowerShell 脚本
 
