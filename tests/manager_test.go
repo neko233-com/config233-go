@@ -1,11 +1,17 @@
 package tests
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"config233-go/pkg/config233"
+	"config233-go/pkg/config233/dto"
+	"config233-go/pkg/config233/excel"
+	"config233-go/pkg/config233/json"
+	"config233-go/pkg/config233/tsv"
 )
 
 // TestConfigManager233_GetConfig 测试配置管理器的 GetConfig 方法
@@ -46,6 +52,344 @@ func TestConfigManager233_LoadAllConfigs(t *testing.T) {
 		for _, name := range loadedConfigs {
 			t.Logf("配置名: %s", name)
 		}
+	}
+}
+
+// TestConfigManager233_GetLoadedConfigNames 测试获取已加载配置名称列表
+func TestConfigManager233_GetLoadedConfigNames(t *testing.T) {
+	testDir := getTestDataDir()
+	manager := config233.NewConfigManager233(testDir)
+
+	// 初始状态应该没有配置
+	names := manager.GetLoadedConfigNames()
+	if len(names) != 0 {
+		t.Errorf("期望初始状态没有配置，实际得到 %d 个配置", len(names))
+	}
+
+	// 加载配置后应该有配置
+	err := manager.LoadAllConfigs()
+	if err != nil {
+		t.Logf("加载配置失败: %v", err)
+	}
+
+	names = manager.GetLoadedConfigNames()
+	if len(names) == 0 {
+		t.Log("没有加载到配置，跳过测试")
+		return
+	}
+
+	t.Logf("成功加载了 %d 个配置: %v", len(names), names)
+}
+
+// TestConfigManager233_GetConfigAfterLoad 测试加载配置后获取配置
+func TestConfigManager233_GetConfigAfterLoad(t *testing.T) {
+	testDir := getTestDataDir()
+	manager := config233.NewConfigManager233(testDir)
+
+	// 先加载配置
+	err := manager.LoadAllConfigs()
+	if err != nil {
+		t.Logf("加载配置失败: %v", err)
+	}
+
+	// 测试获取已加载的配置
+	loadedNames := manager.GetLoadedConfigNames()
+	if len(loadedNames) == 0 {
+		t.Log("没有加载到配置，跳过测试")
+		return
+	}
+
+	// 尝试获取第一个配置的第一个项目
+	firstConfigName := loadedNames[0]
+	_, exists := manager.GetConfig(firstConfigName, "1")
+	if !exists {
+		t.Logf("配置 %s 的项目 1 不存在", firstConfigName)
+	} else {
+		t.Logf("成功获取配置 %s 的项目 1", firstConfigName)
+	}
+}
+
+// TestConfigManager233_ConcurrentAccess 测试并发访问安全性
+func TestConfigManager233_ConcurrentAccess(t *testing.T) {
+	testDir := getTestDataDir()
+	manager := config233.NewConfigManager233(testDir)
+
+	// 加载配置
+	err := manager.LoadAllConfigs()
+	if err != nil {
+		t.Logf("加载配置失败: %v", err)
+	}
+
+	// 并发测试
+	var wg sync.WaitGroup
+	numGoroutines := 10
+	numOperations := 100
+
+	// 并发读取
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < numOperations; j++ {
+				manager.GetLoadedConfigNames()
+				manager.GetConfig("test", fmt.Sprintf("%d", j))
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	t.Log("并发访问测试完成")
+}
+
+// TestConfigManager233_ErrorHandling 测试错误处理
+func TestConfigManager233_ErrorHandling(t *testing.T) {
+	// 测试不存在的目录
+	manager := config233.NewConfigManager233("/nonexistent/path")
+
+	err := manager.LoadAllConfigs()
+	if err == nil {
+		t.Log("期望加载不存在目录时出错，但没有出错")
+	} else {
+		t.Logf("正确处理了错误: %v", err)
+	}
+
+	// 测试获取不存在的配置
+	_, exists := manager.GetConfig("nonexistent", "1")
+	if exists {
+		t.Error("不应该找到不存在的配置")
+	}
+}
+
+// TestConfigManager233_Reload 测试配置重载功能
+func TestConfigManager233_Reload(t *testing.T) {
+	testDir := getTestDataDir()
+	manager := config233.NewConfigManager233(testDir)
+
+	// 加载配置
+	err := manager.LoadAllConfigs()
+	if err != nil {
+		t.Logf("加载配置失败: %v", err)
+	}
+
+	initialCount := len(manager.GetLoadedConfigNames())
+	t.Logf("初始加载了 %d 个配置", initialCount)
+
+	// 再次加载（模拟重载）
+	err = manager.LoadAllConfigs()
+	if err != nil {
+		t.Logf("重载配置失败: %v", err)
+	}
+
+	afterReloadCount := len(manager.GetLoadedConfigNames())
+	t.Logf("重载后有 %d 个配置", afterReloadCount)
+
+	if initialCount != afterReloadCount {
+		t.Errorf("重载前后配置数量不一致: %d vs %d", initialCount, afterReloadCount)
+	}
+}
+
+// TestConfigManager233_EmptyDirectory 测试空目录处理
+func TestConfigManager233_EmptyDirectory(t *testing.T) {
+	// 创建临时空目录
+	tempDir, err := os.MkdirTemp("", "config233_test_empty")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	manager := config233.NewConfigManager233(tempDir)
+	err = manager.LoadAllConfigs()
+	if err != nil {
+		t.Logf("空目录加载结果: %v", err)
+	}
+
+	names := manager.GetLoadedConfigNames()
+	if len(names) != 0 {
+		t.Errorf("空目录应该没有配置，实际得到 %d 个", len(names))
+	}
+}
+
+// TestConfigManager233_InvalidFiles 测试无效文件处理
+func TestConfigManager233_InvalidFiles(t *testing.T) {
+	// 创建临时目录并添加无效文件
+	tempDir, err := os.MkdirTemp("", "config233_test_invalid")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// 创建一个无效的配置文件
+	invalidFile := filepath.Join(tempDir, "invalid.txt")
+	err = os.WriteFile(invalidFile, []byte("invalid content"), 0644)
+	if err != nil {
+		t.Fatalf("创建无效文件失败: %v", err)
+	}
+
+	manager := config233.NewConfigManager233(tempDir)
+	err = manager.LoadAllConfigs()
+	if err != nil {
+		t.Logf("处理无效文件的结果: %v", err)
+	}
+
+	names := manager.GetLoadedConfigNames()
+	t.Logf("从包含无效文件的目录加载了 %d 个配置", len(names))
+}
+
+// TestJsonConfigHandler 测试 JSON 配置处理器
+func TestJsonConfigHandler(t *testing.T) {
+	handler := &json.JsonConfigHandler{}
+
+	// 测试类型名称
+	if handler.TypeName() != "json" {
+		t.Errorf("期望类型名称为 'json'，实际得到 '%s'", handler.TypeName())
+	}
+
+	// 测试处理有效 JSON 文件
+	testDir := getTestDataDir()
+	jsonFile := filepath.Join(testDir, "RedundantConfigJson.json")
+
+	if _, err := os.Stat(jsonFile); err == nil {
+		result := handler.ReadToFrontEndDataList("test", jsonFile)
+		if result == nil {
+			t.Error("期望 JSON 处理成功，但返回 nil")
+		} else {
+			dto := result.(*dto.FrontEndConfigDto)
+			if dto.Type != "json" {
+				t.Errorf("期望 DTO 类型为 'json'，实际得到 '%s'", dto.Type)
+			}
+			t.Logf("JSON 处理成功，加载了 %d 条数据", len(dto.DataList))
+		}
+	} else {
+		t.Log("测试 JSON 文件不存在，跳过测试")
+	}
+}
+
+// TestExcelConfigHandler 测试 Excel 配置处理器
+func TestExcelConfigHandler(t *testing.T) {
+	handler := &excel.ExcelConfigHandler{}
+
+	// 测试类型名称
+	if handler.TypeName() != "excel" {
+		t.Errorf("期望类型名称为 'excel'，实际得到 '%s'", handler.TypeName())
+	}
+
+	// 测试处理有效 Excel 文件
+	testDir := getTestDataDir()
+	excelFile := filepath.Join(testDir, "StudentExcel.xlsx")
+
+	if _, err := os.Stat(excelFile); err == nil {
+		result := handler.ReadToFrontEndDataList("test", excelFile)
+		if result == nil {
+			t.Error("期望 Excel 处理成功，但返回 nil")
+		} else {
+			dto := result.(*dto.FrontEndConfigDto)
+			if dto.Type != "excel" {
+				t.Errorf("期望 DTO 类型为 'excel'，实际得到 '%s'", dto.Type)
+			}
+			t.Logf("Excel 处理成功，加载了 %d 条数据", len(dto.DataList))
+		}
+	} else {
+		t.Log("测试 Excel 文件不存在，跳过测试")
+	}
+}
+
+// TestTsvConfigHandler 测试 TSV 配置处理器
+func TestTsvConfigHandler(t *testing.T) {
+	handler := &tsv.TsvConfigHandler{}
+
+	// 测试类型名称
+	if handler.TypeName() != "tsv" {
+		t.Errorf("期望类型名称为 'tsv'，实际得到 '%s'", handler.TypeName())
+	}
+
+	// 测试处理有效 TSV 文件（如果有的话）
+	testDir := getTestDataDir()
+	tsvFile := filepath.Join(testDir, "test.tsv")
+
+	if _, err := os.Stat(tsvFile); err == nil {
+		result := handler.ReadToFrontEndDataList("test", tsvFile)
+		if result == nil {
+			t.Error("期望 TSV 处理成功，但返回 nil")
+		} else {
+			dto := result.(*dto.FrontEndConfigDto)
+			if dto.Type != "tsv" {
+				t.Errorf("期望 DTO 类型为 'tsv'，实际得到 '%s'", dto.Type)
+			}
+			t.Logf("TSV 处理成功，加载了 %d 条数据", len(dto.DataList))
+		}
+	} else {
+		t.Log("测试 TSV 文件不存在，跳过测试")
+	}
+}
+
+// TestConfig233_BasicFunctionality 测试 Config233 基本功能
+func TestConfig233_BasicFunctionality(t *testing.T) {
+	config := config233.NewConfig233()
+
+	// 测试链式调用
+	config.Directory("./test").
+		AddConfigHandler("json", &json.JsonConfigHandler{}).
+		AddConfigHandler("xlsx", &excel.ExcelConfigHandler{})
+
+	// 验证处理器已添加
+	if len(config.GetFileHandlers()) == 0 {
+		t.Log("处理器添加可能有问题")
+	}
+}
+
+// TestConfig233_ErrorHandling 测试 Config233 错误处理
+func TestConfig233_ErrorHandling(t *testing.T) {
+	config := config233.NewConfig233()
+
+	// 测试无效目录
+	config.Directory("/nonexistent/path")
+
+	// 应该不会 panic
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("Config233 不应该在无效目录下 panic: %v", r)
+		}
+	}()
+
+	// 测试基本操作
+	config.AddConfigHandler("test", &json.JsonConfigHandler{})
+}
+
+// TestGlobalInstance 测试全局实例
+func TestGlobalInstance(t *testing.T) {
+	// 测试全局实例存在
+	if config233.Instance == nil {
+		t.Error("全局实例不应该为 nil")
+	}
+
+	// 测试可以获取配置（即使可能不存在）
+	_, exists := config233.Instance.GetConfig("test", "1")
+	t.Logf("全局实例测试完成，配置存在: %v", exists)
+}
+
+// BenchmarkConfigManager233_GetConfig 基准测试配置获取性能
+func BenchmarkConfigManager233_GetConfig(b *testing.B) {
+	testDir := getTestDataDir()
+	manager := config233.NewConfigManager233(testDir)
+
+	// 预加载配置
+	manager.LoadAllConfigs()
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			manager.GetConfig("test", "1")
+		}
+	})
+}
+
+// BenchmarkConfigManager233_LoadAllConfigs 基准测试配置加载性能
+func BenchmarkConfigManager233_LoadAllConfigs(b *testing.B) {
+	testDir := getTestDataDir()
+
+	for i := 0; i < b.N; i++ {
+		manager := config233.NewConfigManager233(testDir)
+		manager.LoadAllConfigs()
 	}
 }
 

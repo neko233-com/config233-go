@@ -40,10 +40,14 @@ func init() {
 		configDir = "config"
 	}
 	Instance = NewConfigManager233(configDir)
+	// 为全局实例自动加载配置
+	if err := Instance.LoadAllConfigs(); err != nil {
+		getLogger().Error(err, "加载配置失败")
+	}
 }
 
 // NewConfigManager233 创建新的配置管理器
-// 初始化配置管理器实例，设置配置目录并自动加载所有配置
+// 初始化配置管理器实例，设置配置目录
 // 参数:
 //
 //	configDir: 配置文件的目录路径
@@ -60,10 +64,7 @@ func NewConfigManager233(configDir string) *ConfigManager233 {
 		watcher:     NewConfig233(),
 	}
 
-	// 初始化配置
-	if err := manager.LoadAllConfigs(); err != nil {
-		getLogger().Error(err, "加载配置失败")
-	}
+	// 不自动加载配置，让用户手动调用 LoadAllConfigs
 
 	return manager
 }

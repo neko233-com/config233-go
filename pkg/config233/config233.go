@@ -48,6 +48,16 @@ func (c *Config233) AddConfigHandler(ext string, handler ConfigHandler) *Config2
 	return c
 }
 
+// GetFileHandlers 获取所有已注册的文件处理器
+// 返回文件扩展名到处理器的映射副本
+func (c *Config233) GetFileHandlers() map[string]ConfigHandler {
+	handlers := make(map[string]ConfigHandler)
+	for k, v := range c.fileHandlers {
+		handlers[k] = v
+	}
+	return handlers
+}
+
 // AddExcludeFileName 添加要排除的文件名
 // 这些文件不会被当作配置文件处理，通常用于排除临时文件或日志文件
 // fileNames: 要排除的文件名列表

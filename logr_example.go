@@ -41,7 +41,7 @@ func main() {
 
 	// 示例1: 使用默认日志（静默模式，不输出日志）
 	fmt.Println("=== 使用默认日志（静默模式） ===")
-	config, exists := config233.Instance.GetConfig("StudentConfig", "1")
+	config, exists := config233.Instance.GetConfig("Student", "1")
 	if exists {
 		fmt.Printf("找到配置: %+v\n", config)
 	} else {
@@ -54,7 +54,7 @@ func main() {
 	config233.SetLogger(logger)
 
 	// 现在日志调用会输出到控制台
-	config, exists = config233.Instance.GetConfig("StudentConfig", "1")
+	config, exists = config233.Instance.GetConfig("Student", "1")
 	if exists {
 		fmt.Printf("找到配置: %+v\n", config)
 	} else {

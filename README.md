@@ -36,6 +36,37 @@ manager := config233.NewConfigManager233("./myconfig")
 manager.StartWatching() // 启动热更新监听
 ```
 
+## 测试
+
+项目使用 Go 标准测试框架，测试文件位于 `tests/` 目录下，与主代码分离。
+
+运行所有测试：
+
+```bash
+go test ./tests -v
+```
+
+运行覆盖率测试：
+
+```bash
+go test ./tests -cover
+```
+
+## 示例
+
+查看 `logr_example.go` 和 `manager_example.go` 获取使用示例。
+
+### 日志配置
+
+Config233-Go 支持 logr 接口，可以集成各种日志库：
+
+```go
+import "config233-go/pkg/config233"
+
+// 设置自定义日志器
+config233.SetLogger(yourLogrLogger)
+```
+
 ### 使用 Config233（完整功能）
 
 ```go
