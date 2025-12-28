@@ -54,10 +54,10 @@ func (h *ExcelConfigHandler) ReadToFrontEndDataList(configName, configFileFullPa
 	}
 
 	headers := rows[0]
-	var dataList []map[string]string
+	var dataList []map[string]interface{}
 
 	for _, row := range rows[1:] {
-		item := make(map[string]string)
+		item := make(map[string]interface{})
 		for i, cell := range row {
 			if i < len(headers) {
 				item[headers[i]] = cell

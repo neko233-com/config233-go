@@ -4,7 +4,6 @@ package config233
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -200,7 +199,7 @@ func (c *Config233) loadConfig(typ reflect.Type, name, path string) {
 func (c *Config233) startFileWatcher(fileMap map[string]string) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		getLogger().Errorf(err)
+		getLogger().Error(err, "创建文件监听器失败")
 	}
 
 	go func() {
@@ -217,7 +216,7 @@ func (c *Config233) startFileWatcher(fileMap map[string]string) {
 				if !ok {
 					return
 				}
-				getLogger().Infof("监听器错误:", err)
+				getLogger().Error(err, "文件监听器错误")
 			}
 		}
 	}()
@@ -226,7 +225,7 @@ func (c *Config233) startFileWatcher(fileMap map[string]string) {
 	for _, path := range fileMap {
 		err = watcher.Add(path)
 		if err != nil {
-			getLogger().Errorf(err)
+			getLogger().Error(err, "添加文件到监听器失败", "path", path)
 		}
 	}
 }

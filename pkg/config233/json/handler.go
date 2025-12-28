@@ -36,7 +36,7 @@ func (h *JsonConfigHandler) ReadToFrontEndDataList(configName, configFileFullPat
 		panic(err)
 	}
 
-	var dataList []map[string]string
+	var dataList []map[string]interface{}
 	err = json.Unmarshal(data, &dataList)
 	if err != nil {
 		panic(err)

@@ -62,7 +62,7 @@ func NewConfigManager233(configDir string) *ConfigManager233 {
 
 	// 初始化配置
 	if err := manager.LoadAllConfigs(); err != nil {
-		getLogger().Errorf("加载配置失败: %v", err)
+		getLogger().Error(err, "加载配置失败")
 	}
 
 	return manager
@@ -91,17 +91,17 @@ func (cm *ConfigManager233) LoadAllConfigs() error {
 			switch ext {
 			case ".xlsx", ".xls":
 				if err := cm.loadExcelConfig(path); err != nil {
-					getLogger().Errorf("加载Excel配置失败 %s: %v", path, err)
+					getLogger().Error(err, "加载Excel配置失败", "path", path)
 					return nil // 继续处理其他文件
 				}
 			case ".json":
 				if err := cm.loadJsonConfig(path); err != nil {
-					getLogger().Errorf("加载JSON配置失败 %s: %v", path, err)
+					getLogger().Error(err, "加载JSON配置失败", "path", path)
 					return nil
 				}
 			case ".tsv":
 				if err := cm.loadTsvConfig(path); err != nil {
-					getLogger().Errorf("加载TSV配置失败 %s: %v", path, err)
+					getLogger().Error(err, "加载TSV配置失败", "path", path)
 					return nil
 				}
 			}
@@ -142,7 +142,11 @@ func (cm *ConfigManager233) loadExcelConfig(filePath string) error {
 		var id string
 		for _, v := range item {
 			if id == "" {
-				id = v
+				if str, ok := v.(string); ok {
+					id = str
+				} else {
+					id = fmt.Sprintf("%v", v)
+				}
 			}
 			break
 		}
@@ -151,10 +155,8 @@ func (cm *ConfigManager233) loadExcelConfig(filePath string) error {
 		}
 	}
 
-	cm.mutex.Lock()
 	cm.configs[fileName] = dto.DataList
 	cm.configMaps[fileName] = configMap
-	cm.mutex.Unlock()
 
 	return nil
 }
@@ -188,7 +190,11 @@ func (cm *ConfigManager233) loadJsonConfig(filePath string) error {
 		var id string
 		for _, v := range item {
 			if id == "" {
-				id = v
+				if str, ok := v.(string); ok {
+					id = str
+				} else {
+					id = fmt.Sprintf("%v", v)
+				}
 			}
 			break
 		}
@@ -197,10 +203,8 @@ func (cm *ConfigManager233) loadJsonConfig(filePath string) error {
 		}
 	}
 
-	cm.mutex.Lock()
 	cm.configs[fileName] = dto.DataList
 	cm.configMaps[fileName] = configMap
-	cm.mutex.Unlock()
 
 	return nil
 }
@@ -234,7 +238,11 @@ func (cm *ConfigManager233) loadTsvConfig(filePath string) error {
 		var id string
 		for _, v := range item {
 			if id == "" {
-				id = v
+				if str, ok := v.(string); ok {
+					id = str
+				} else {
+					id = fmt.Sprintf("%v", v)
+				}
 			}
 			break
 		}
@@ -243,10 +251,8 @@ func (cm *ConfigManager233) loadTsvConfig(filePath string) error {
 		}
 	}
 
-	cm.mutex.Lock()
 	cm.configs[fileName] = dto.DataList
 	cm.configMaps[fileName] = configMap
-	cm.mutex.Unlock()
 
 	return nil
 }
@@ -421,6 +427,6 @@ type ConfigManagerReloadListener struct {
 
 // OnConfigDataChange 配置数据变更时调用
 func (l *ConfigManagerReloadListener) OnConfigDataChange(typ reflect.Type, dataList []interface{}) {
-	getLogger().Infof("检测到配置变更，类型: %s, 数据项数: %d", typ.String(), len(dataList))
+	getLogger().Info("检测到配置变更", "type", typ.String(), "dataCount", len(dataList))
 	l.manager.Reload()
 }

@@ -51,7 +51,7 @@ func (h *TsvConfigHandler) ReadToFrontEndDataList(configName, configFileFullPath
 	}
 
 	headers := strings.Split(strings.TrimSpace(lines[0]), "\t")
-	var dataList []map[string]string
+	var dataList []map[string]interface{}
 
 	for _, line := range lines[1:] {
 		line = strings.TrimSpace(line)
@@ -60,7 +60,7 @@ func (h *TsvConfigHandler) ReadToFrontEndDataList(configName, configFileFullPath
 		}
 
 		values := strings.Split(line, "\t")
-		item := make(map[string]string)
+		item := make(map[string]interface{})
 		for i, value := range values {
 			if i < len(headers) {
 				item[headers[i]] = value
