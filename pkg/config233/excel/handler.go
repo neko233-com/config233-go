@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"strconv"
 
-	"config233-go/pkg/config233/dto"
+	"github.com/neko233-com/config233-go/pkg/config233/dto"
 
 	"github.com/xuri/excelize/v2"
 )

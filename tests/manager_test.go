@@ -7,11 +7,11 @@ import (
 	"sync"
 	"testing"
 
-	"config233-go/pkg/config233"
-	"config233-go/pkg/config233/dto"
-	"config233-go/pkg/config233/excel"
-	"config233-go/pkg/config233/json"
-	"config233-go/pkg/config233/tsv"
+	"github.com/neko233-com/config233-go/pkg/config233"
+	"github.com/neko233-com/config233-go/pkg/config233/dto"
+	"github.com/neko233-com/config233-go/pkg/config233/excel"
+	"github.com/neko233-com/config233-go/pkg/config233/json"
+	"github.com/neko233-com/config233-go/pkg/config233/tsv"
 )
 
 // TestConfigManager233_GetConfig 测试配置管理器的 GetConfig 方法

@@ -1,4 +1,4 @@
-module config233-go
+module github.com/neko233-com/config233-go
 
 go 1.21
 

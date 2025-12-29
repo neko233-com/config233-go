@@ -8,22 +8,32 @@ import (
 	"strings"
 	"sync"
 
-	"config233-go/pkg/config233/dto"
-	"config233-go/pkg/config233/excel"
-	"config233-go/pkg/config233/json"
-	"config233-go/pkg/config233/tsv"
+	"github.com/neko233-com/config233-go/pkg/config233/dto"
+	"github.com/neko233-com/config233-go/pkg/config233/excel"
+	"github.com/neko233-com/config233-go/pkg/config233/json"
+	"github.com/neko233-com/config233-go/pkg/config233/tsv"
 )
+
+// IBusinessConfigManager 业务配置管理器接口
+type IBusinessConfigManager interface {
+	// OnConfigLoadComplete 配置加载完成回调
+	OnConfigLoadComplete(configName string)
+
+	// OnConfigHotUpdate 配置热更新回调
+	OnConfigHotUpdate()
+}
 
 // ConfigManager233 全新的配置管理器，支持热重载
 // 提供简化的配置管理接口，支持多种配置格式的自动加载和热重载
 // 内部使用 Config233 进行文件监听和配置处理
 type ConfigManager233 struct {
-	mutex       sync.RWMutex                      // 读写锁，保证线程安全
-	configs     map[string]interface{}            // 配置名 -> 配置数据映射
-	configMaps  map[string]map[string]interface{} // 配置名 -> (ID -> 配置数据) 映射
-	configDir   string                            // 配置目录路径
-	reloadFuncs []func()                          // 配置重载时的回调函数列表
-	watcher     *Config233                        // 内部使用的 Config233 实例，用于文件监听
+	mutex            sync.RWMutex                      // 读写锁，保证线程安全
+	configs          map[string]interface{}            // 配置名 -> 配置数据映射
+	configMaps       map[string]map[string]interface{} // 配置名 -> (ID -> 配置数据) 映射
+	configDir        string                            // 配置目录路径
+	reloadFuncs      []func()                          // 配置重载时的回调函数列表
+	businessManagers []IBusinessConfigManager          // 业务配置管理器列表
+	watcher          *Config233                        // 内部使用的 Config233 实例，用于文件监听
 }
 
 // Instance 全局配置管理器实例
@@ -57,11 +67,12 @@ func init() {
 //	*ConfigManager233: 新创建的配置管理器实例
 func NewConfigManager233(configDir string) *ConfigManager233 {
 	manager := &ConfigManager233{
-		configs:     make(map[string]interface{}),
-		configMaps:  make(map[string]map[string]interface{}),
-		configDir:   configDir,
-		reloadFuncs: make([]func(), 0),
-		watcher:     NewConfig233(),
+		configs:          make(map[string]interface{}),
+		configMaps:       make(map[string]map[string]interface{}),
+		configDir:        configDir,
+		reloadFuncs:      make([]func(), 0),
+		businessManagers: make([]IBusinessConfigManager, 0),
+		watcher:          NewConfig233(),
 	}
 
 	// 不自动加载配置，让用户手动调用 LoadAllConfigs
@@ -110,6 +121,15 @@ func (cm *ConfigManager233) LoadAllConfigs() error {
 
 		return nil
 	})
+
+	if err == nil {
+		// 加载完成后调用业务配置管理器的回调
+		for configName := range cm.configs {
+			for _, manager := range cm.businessManagers {
+				manager.OnConfigLoadComplete(configName)
+			}
+		}
+	}
 
 	return err
 }
@@ -346,6 +366,11 @@ func (cm *ConfigManager233) Reload() error {
 		fn()
 	}
 
+	// 调用业务配置管理器的热更新回调
+	for _, manager := range cm.businessManagers {
+		manager.OnConfigHotUpdate()
+	}
+
 	getLogger().Info("配置重载成功")
 	return nil
 }
@@ -362,6 +387,18 @@ func (cm *ConfigManager233) RegisterReloadFunc(fn func()) {
 	cm.reloadFuncs = append(cm.reloadFuncs, fn)
 }
 
+// RegisterBusinessManager 注册业务配置管理器
+// 注册一个业务配置管理器，用于接收配置加载和热更新的回调
+// 参数:
+//
+//	manager: 业务配置管理器实例
+func (cm *ConfigManager233) RegisterBusinessManager(manager IBusinessConfigManager) {
+	cm.mutex.Lock()
+	defer cm.mutex.Unlock()
+	cm.businessManagers = append(cm.businessManagers, manager)
+	getLogger().Info("注册业务配置管理器", "type", fmt.Sprintf("%T", manager))
+}
+
 // GetLoadedConfigNames 获取已加载的配置名列表
 // 返回所有已成功加载的配置名称列表
 // 返回值:
@@ -376,6 +413,25 @@ func (cm *ConfigManager233) GetLoadedConfigNames() []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+// GetConfigCount 获取配置数量
+// 获取指定配置名称下的配置项数量
+// 参数:
+//
+//	configName: 配置名称
+//
+// 返回值:
+//
+//	int: 配置项数量
+func (cm *ConfigManager233) GetConfigCount(configName string) int {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	if configMap, exists := cm.configMaps[configName]; exists {
+		return len(configMap)
+	}
+	return 0
 }
 
 // mapToStruct 将map转换为struct

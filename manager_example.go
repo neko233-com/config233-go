@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"config233-go/pkg/config233"
+	"github.com/neko233-com/config233-go/pkg/config233"
 )
 
 func main() {
