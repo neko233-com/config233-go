@@ -12,6 +12,12 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     exit 1
 }
 
+# Ensure version starts with 'v'
+if (-not $Version.StartsWith("v")) {
+    $Version = "v" + $Version
+    Write-Host "Version updated to $Version" -ForegroundColor Cyan
+}
+
 Write-Host "Releasing version $Version"
 Write-Host ""
 
