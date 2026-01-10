@@ -3,6 +3,7 @@ package excel
 import (
 	"reflect"
 	"strconv"
+	"strings"
 
 	"github.com/neko233-com/config233-go/pkg/config233/dto"
 
@@ -56,14 +57,23 @@ func (h *ExcelConfigHandler) ReadToFrontEndDataList(configName, configFileFullPa
 		panic(err)
 	}
 
-	// Excel 实际格式：
-	// 人类第 1 行 (index 0): 注释
-	// 人类第 2 行 (index 1): 中文字段名
-	// 人类第 3 行 (index 2): Client 字段名
-	// 人类第 4 行 (index 3): 类型 (type)
-	// 人类第 5 行 (index 4): Server 字段名 ← 使用这一行
-	// 人类第 6 行 (index 5): 数据开始
-	if len(rows) < 5 {
+	// 第 1 列 column 完全没有跳过
+	// 固定行结构（0-based 索引）：
+	// 第 1 行 (index 0): 注释
+	// 第 2 行 (index 1): 中文字段名
+	// 第 3 行 (index 2): Client 字段名
+	// 第 4 行 (index 3): 类型 (type)
+	// 第 5 行 (index 4): Server 字段名
+	// 第 6 行 (index 5): 数据开始
+	const (
+		clientRowIndex = 2 // Client 字段名行
+		typeRowIndex   = 3 // 类型行
+		serverRowIndex = 4 // Server 字段名行
+		dataStartIndex = 5 // 数据开始行
+	)
+
+	// 检查行数是否足够
+	if len(rows) <= dataStartIndex {
 		return &dto.FrontEndConfigDto{
 			DataList:         nil,
 			Type:             h.TypeName(),
@@ -72,27 +82,41 @@ func (h *ExcelConfigHandler) ReadToFrontEndDataList(configName, configFileFullPa
 		}
 	}
 
-	// Server 字段名在第 5 行（index 4）
-	headers := rows[4] // Server 字段名在第 5 行（index 4）
+	// Server 行作为字段名，从第 2 列开始（跳过第 1 列的标识）
+	headers := rows[serverRowIndex]
+
+	// 获取类型信息
+	var types []string
+	if typeRowIndex < len(rows) {
+		types = rows[typeRowIndex]
+	}
+
 	var dataList []map[string]interface{}
 
-	if len(rows) >= 6 { // 数据从第 6 行开始（index 5）
-		for _, row := range rows[5:] {
-			item := make(map[string]interface{})
-			// 从第二列开始（跳过第一列的标识符，如 "Server", "Client" 等）
-			for i := 1; i < len(row); i++ {
-				if i < len(headers) {
-					fieldName := headers[i]
-					if fieldName == "" {
-						continue
-					}
-					item[fieldName] = row[i]
+	// 从数据行开始读取
+	for _, row := range rows[dataStartIndex:] {
+		item := make(map[string]interface{})
+		// 从第二列开始（跳过第一列的标识符）
+		for i := 1; i < len(row); i++ {
+			if i < len(headers) {
+				fieldName := headers[i]
+				if fieldName == "" {
+					continue
+				}
+
+				cellValue := row[i]
+
+				// 如果有类型信息，进行类型转换
+				if types != nil && i < len(types) {
+					item[fieldName] = h.convertValue(cellValue, types[i])
+				} else {
+					item[fieldName] = cellValue
 				}
 			}
-			if len(item) > 0 {
-				// 只添加非空行
-				dataList = append(dataList, item)
-			}
+		}
+		if len(item) > 0 {
+			// 只添加非空行
+			dataList = append(dataList, item)
 		}
 	}
 
@@ -124,44 +148,45 @@ func (h *ExcelConfigHandler) ReadConfigAndORM(typ reflect.Type, configName, conf
 		panic(err)
 	}
 
-	// Excel 实际格式：
-	// 人类第 1 行 (index 0): 注释
-	// 人类第 2 行 (index 1): 中文字段名
-	// 人类第 3 行 (index 2): Client 字段名
-	// 人类第 4 行 (index 3): 类型 (type)
-	// 人类第 5 行 (index 4): Server 字段名 ← 使用这一行
-	// 人类第 6 行 (index 5): 数据开始
-	if len(rows) < 5 {
+	// 固定行结构（0-based 索引）：
+	// 第 5 行 (index 4): Server 字段名
+	// 第 6 行 (index 5): 数据开始
+	const (
+		serverRowIndex = 4 // Server 字段名行
+		dataStartIndex = 5 // 数据开始行
+	)
+
+	// 检查行数是否足够
+	if len(rows) <= dataStartIndex {
 		return nil
 	}
 
-	headers := rows[4] // Server 字段名在第 5 行（index 4）
+	headers := rows[serverRowIndex]
 	var result []interface{}
 
-	if len(rows) >= 6 { // 数据从第 6 行开始（index 5）
-		for _, row := range rows[5:] {
-			obj := reflect.New(typ).Elem()
+	// 从数据行开始读取
+	for _, row := range rows[dataStartIndex:] {
+		obj := reflect.New(typ).Elem()
 
-			// 从第二列开始（跳过第一列的标识符）
-			for i := 1; i < len(row); i++ {
-				if i >= len(headers) {
-					continue
-				}
-
-				fieldName := headers[i]
-				if fieldName == "" {
-					continue
-				}
-				field := obj.FieldByName(fieldName)
-				if !field.IsValid() || !field.CanSet() {
-					continue
-				}
-
-				h.setFieldValue(field, row[i])
+		// 从第二列开始（跳过第一列的标识符）
+		for i := 1; i < len(row); i++ {
+			if i >= len(headers) {
+				continue
 			}
 
-			result = append(result, obj.Interface())
+			fieldName := headers[i]
+			if fieldName == "" {
+				continue
+			}
+			field := obj.FieldByName(fieldName)
+			if !field.IsValid() || !field.CanSet() {
+				continue
+			}
+
+			h.setFieldValue(field, row[i])
 		}
+
+		result = append(result, obj.Interface())
 	}
 
 	return result
@@ -189,4 +214,41 @@ func (h *ExcelConfigHandler) setFieldValue(field reflect.Value, value string) {
 			field.SetBool(boolVal)
 		}
 	}
+}
+
+// convertValue 根据类型字符串转换值
+func (h *ExcelConfigHandler) convertValue(value string, typeStr string) interface{} {
+	// 空值直接返回
+	if value == "" {
+		return value
+	}
+
+	switch typeStr {
+	case "int", "int32":
+		if intVal, err := strconv.Atoi(value); err == nil {
+			return intVal
+		}
+	case "long", "int64":
+		if intVal, err := strconv.ParseInt(value, 10, 64); err == nil {
+			return intVal
+		}
+	case "float", "float32":
+		if floatVal, err := strconv.ParseFloat(value, 32); err == nil {
+			return float32(floatVal)
+		}
+	case "double", "float64":
+		if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
+			return floatVal
+		}
+	case "bool", "boolean":
+		// 支持多种 bool 格式
+		lower := strings.ToLower(value)
+		return lower == "true" || lower == "1" || lower == "yes"
+	case "json":
+		// JSON 类型保持字符串，由调用方自行解析
+		return value
+	}
+
+	// 默认返回字符串
+	return value
 }

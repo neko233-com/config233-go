@@ -169,18 +169,19 @@ func (cm *ConfigManager233) loadExcelConfig(filePath string) error {
 	// 转换为配置映射
 	configMap := make(map[string]interface{})
 	for _, item := range dto.DataList {
-		// 使用第一列作为 ID（如果存在的话）
+		// 优先使用 id/ID/Id 字段作为配置 ID
 		var id string
-		for _, v := range item {
-			if id == "" {
-				if str, ok := v.(string); ok {
-					id = str
-				} else {
-					id = fmt.Sprintf("%v", v)
-				}
-			}
-			break
+		if idVal, ok := item["id"]; ok && idVal != "" {
+			id = fmt.Sprintf("%v", idVal)
+		} else if idVal, ok := item["ID"]; ok && idVal != "" {
+			id = fmt.Sprintf("%v", idVal)
+		} else if idVal, ok := item["Id"]; ok && idVal != "" {
+			id = fmt.Sprintf("%v", idVal)
+		} else if idVal, ok := item["itemId"]; ok && idVal != "" {
+			// 兼容 itemId 字段
+			id = fmt.Sprintf("%v", idVal)
 		}
+
 		if id != "" {
 			configMap[id] = item
 		}

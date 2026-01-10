@@ -29,6 +29,12 @@ go.work
 ._*
 .Spotlight-V100
 .Trashes
+
+# Check output directory (test output)
+CheckOutput/
+
+# Generated struct code directory
+GeneratedStruct/
 ehthumbs.db
 Thumbs.db
 
