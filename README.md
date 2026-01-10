@@ -26,7 +26,7 @@ ConfigManager233 提供了更简单的全局配置管理接口：
 import "config233-go/pkg/config233"
 
 // 使用全局实例
-config, exists := config233.GetConfigById[Student](config233.Instance, "1")
+config, exists := GetConfigById[Student]("1")
 if exists {
     fmt.Printf("学生信息: %+v", config)
 }

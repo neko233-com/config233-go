@@ -19,7 +19,7 @@ func TestConfigManager233_GetConfigById(t *testing.T) {
 	// 创建测试用的配置管理器
 	testDir := getTestDataDir()
 	t.Logf("Test data directory: %s", testDir)
-	manager := config233.NewConfigManager233(testDir)
+	_ = config233.NewConfigManager233(testDir)
 
 	// 定义一个测试类型
 	type TestConfig struct {
@@ -27,7 +27,7 @@ func TestConfigManager233_GetConfigById(t *testing.T) {
 	}
 
 	// 测试获取配置 (since no data loaded, should not find)
-	config, exists := config233.GetConfigById[TestConfig](manager, "1")
+	config, exists := config233.GetConfigById[TestConfig]("1")
 	if exists {
 		t.Logf("找到配置: %+v", config)
 	} else {

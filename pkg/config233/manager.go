@@ -9,11 +9,17 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/neko233-com/config233-go/pkg/config233/dto"
 	"github.com/neko233-com/config233-go/pkg/config233/excel"
 	"github.com/neko233-com/config233-go/pkg/config233/json"
 	"github.com/neko233-com/config233-go/pkg/config233/tsv"
 )
+
+// IKvConfig KvConfig接口，避免反射实现
+type IKvConfig interface {
+	GetValue() string
+}
 
 // IBusinessConfigManager 业务配置管理器接口
 type IBusinessConfigManager interface {
@@ -34,7 +40,7 @@ type ConfigManager233 struct {
 	configDir        string                            // 配置目录路径
 	reloadFuncs      []func()                          // 配置重载时的回调函数列表
 	businessManagers []IBusinessConfigManager          // 业务配置管理器列表
-	watcher          *Config233                        // 内部使用的 Config233 实例，用于文件监听
+	watcher          *fsnotify.Watcher                 // 文件监听器
 }
 
 // Instance 全局配置管理器实例
@@ -73,7 +79,7 @@ func NewConfigManager233(configDir string) *ConfigManager233 {
 		configDir:        configDir,
 		reloadFuncs:      make([]func(), 0),
 		businessManagers: make([]IBusinessConfigManager, 0),
-		watcher:          NewConfig233(),
+		watcher:          nil,
 	}
 
 	// 不自动加载配置，让用户手动调用 LoadAllConfigs
@@ -279,19 +285,55 @@ func (cm *ConfigManager233) loadTsvConfig(filePath string) error {
 	return nil
 }
 
-// GetConfigById retrieves a config item by ID for the given type T.
-// 参数:
-//
-//	id: 配置项的唯一标识符 (string, int, or int64)
-//
-// 返回值:
-//
-//	T: 配置项数据
-//	bool: 是否找到该配置项
-func GetConfigById[T any](cm *ConfigManager233, id interface{}) (T, bool) {
-	cm.mutex.RLock()
-	defer cm.mutex.RUnlock()
+// =====================================================
+// ID 索引缓存（O(1) 查找）
+// =====================================================
 
+var (
+	// configIdMaps map[configName]map[id]interface{}
+	configIdMaps = make(map[string]map[string]interface{})
+	idMapsMutex  sync.RWMutex
+)
+
+// BuildIdIndex 构建指定配置的 ID 索引（加载配置后调用）
+func BuildIdIndex(configName string) {
+	idMapsMutex.Lock()
+	defer idMapsMutex.Unlock()
+
+	allConfigs, ok := Instance.GetAllConfigs(configName)
+	if !ok {
+		return
+	}
+
+	idMap := make(map[string]interface{})
+	for id, cfg := range allConfigs {
+		idMap[id] = cfg
+	}
+	configIdMaps[configName] = idMap
+	getLogger().Info("构建 ID 索引", "config", configName, "count", len(idMap))
+}
+
+// BuildAllIdIndexes 构建所有已加载配置的 ID 索引
+func BuildAllIdIndexes() {
+	names := Instance.GetLoadedConfigNames()
+	for _, name := range names {
+		BuildIdIndex(name)
+	}
+	getLogger().Info("所有配置 ID 索引构建完成", "configCount", len(names))
+}
+
+// =====================================================
+// 泛型查询方法
+// =====================================================
+
+// GetConfigById 根据 ID 获取单个配置（O(1) 查找）
+// 自动根据类型名推断 configName
+// ID 支持 string | int | int64 类型
+func GetConfigById[T any](id interface{}) (*T, bool) {
+	var zero T
+	configName := reflect.TypeOf(zero).Name()
+
+	// 统一转成 string
 	var idStr string
 	switch v := id.(type) {
 	case string:
@@ -301,64 +343,147 @@ func GetConfigById[T any](cm *ConfigManager233, id interface{}) (T, bool) {
 	case int64:
 		idStr = strconv.FormatInt(v, 10)
 	default:
-		var zero T
-		return zero, false
-	}
-
-	configName := reflect.TypeOf(*new(T)).Name()
-	configMap, exists := cm.configMaps[configName]
-	if !exists {
-		var zero T
-		return zero, false
-	}
-
-	config, exists := configMap[idStr]
-	if !exists {
-		var zero T
-		return zero, false
-	}
-
-	if t, ok := config.(T); ok {
-		return t, true
-	}
-
-	var zero T
-	return zero, false
-}
-
-// GetConfigList retrieves all config items for the given type T.
-// 返回值:
-//
-//	[]T: 配置项数据列表
-//	bool: 配置是否存在
-func GetConfigList[T any](cm *ConfigManager233) ([]T, bool) {
-	cm.mutex.RLock()
-	defer cm.mutex.RUnlock()
-
-	configName := reflect.TypeOf(*new(T)).Name()
-	configList, exists := cm.configs[configName]
-	if !exists {
+		getLogger().Error(nil, "GetConfigById 不支持的 ID 类型", "type", fmt.Sprintf("%T", id))
 		return nil, false
 	}
 
-	if list, ok := configList.([]T); ok {
-		return list, true
-	}
+	return GetConfigByIdWithName[T](configName, idStr)
+}
 
-	// If stored as []interface{}, try to cast each item
-	if slice, ok := configList.([]interface{}); ok {
-		result := make([]T, len(slice))
-		for i, item := range slice {
-			if t, ok := item.(T); ok {
-				result[i] = t
-			} else {
-				return nil, false
+// GetConfigByIdWithName 根据配置名和 ID 获取单个配置
+func GetConfigByIdWithName[T any](configName string, id string) (*T, bool) {
+	// 优先从缓存获取
+	idMapsMutex.RLock()
+	idMap, exists := configIdMaps[configName]
+	idMapsMutex.RUnlock()
+
+	if exists {
+		if item, ok := idMap[id]; ok {
+			if result, ok := item.(*T); ok {
+				return result, true
 			}
 		}
-		return result, true
+		return nil, false
 	}
 
+	// 缓存未命中，从 Instance 获取
+	data, ok := Instance.GetConfig(configName, id)
+	if !ok {
+		return nil, false
+	}
+	if result, ok := data.(*T); ok {
+		return result, true
+	}
 	return nil, false
+}
+
+// GetAllConfigList 获取某类型的所有配置列表（纯泛型）
+// 返回 []*T，相当于 map.values() 转 slice
+func GetAllConfigList[T any]() []*T {
+	var zero T
+	configName := reflect.TypeOf(zero).Name()
+
+	allConfigs, ok := Instance.GetAllConfigs(configName)
+	if !ok {
+		return nil
+	}
+
+	result := make([]*T, 0, len(allConfigs))
+	for _, cfg := range allConfigs {
+		if item, ok := cfg.(*T); ok {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+// =====================================================
+// KvConfig 快捷方法（一行搞定）
+// =====================================================
+
+// GetKvInt 从 KvConfig 类型配置中获取 int 值
+func GetKvInt[T IKvConfig](id string, defaultVal int) int {
+	cfg, _ := GetConfigById[T](id)
+	if cfg == nil {
+		return defaultVal
+	}
+	result, err := strconv.Atoi((*cfg).GetValue())
+	if err != nil {
+		getLogger().Error(err, "GetKvInt 解析失败", "id", id, "value", (*cfg).GetValue())
+		return defaultVal
+	}
+	return result
+}
+
+// GetKvString 从 KvConfig 类型配置中获取 string 值
+func GetKvString[T IKvConfig](id string, defaultVal string) string {
+	cfg, _ := GetConfigById[T](id)
+	if cfg == nil {
+		return defaultVal
+	}
+	return (*cfg).GetValue()
+}
+
+// GetKvFloat 从 KvConfig 类型配置中获取 float64 值
+func GetKvFloat[T IKvConfig](id string, defaultVal float64) float64 {
+	cfg, _ := GetConfigById[T](id)
+	if cfg == nil {
+		return defaultVal
+	}
+	result, err := strconv.ParseFloat((*cfg).GetValue(), 64)
+	if err != nil {
+		getLogger().Error(err, "GetKvFloat 解析失败", "id", id, "value", (*cfg).GetValue())
+		return defaultVal
+	}
+	return result
+}
+
+// GetKvBool 从 KvConfig 类型配置中获取 bool 值
+func GetKvBool[T IKvConfig](id string, defaultVal bool) bool {
+	cfg, _ := GetConfigById[T](id)
+	if cfg == nil {
+		return defaultVal
+	}
+	s := strings.ToLower((*cfg).GetValue())
+	return s == "true" || s == "1" || s == "yes"
+}
+
+// GetKvIntList 从 KvConfig 类型配置中获取 []int 值（逗号分隔）
+func GetKvIntList[T IKvConfig](id string, defaultVal []int) []int {
+	cfg, _ := GetConfigById[T](id)
+	if cfg == nil {
+		return defaultVal
+	}
+	str := (*cfg).GetValue()
+	if str == "" {
+		return defaultVal
+	}
+	parts := strings.Split(str, ",")
+	result := make([]int, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if v, err := strconv.Atoi(p); err == nil {
+			result = append(result, v)
+		}
+	}
+	if len(result) == 0 {
+		return defaultVal
+	}
+	return result
+}
+
+// =====================================================
+// 调试方法
+// =====================================================
+
+// PrintLoadedConfigs 打印已加载的配置
+func PrintLoadedConfigs() {
+	names := Instance.GetLoadedConfigNames()
+	fmt.Printf("已加载配置列表 (%d):\n", len(names))
+	for _, name := range names {
+		count := Instance.GetConfigCount(name)
+		fmt.Printf("  - %s: %d 条\n", name, count)
+	}
 }
 
 // Reload 热重载所有配置
@@ -451,14 +576,54 @@ func (cm *ConfigManager233) GetConfigCount(configName string) int {
 
 // StartWatching 启动文件监听
 // 启动对配置目录的文件监听，当配置文件发生变化时自动重载配置
-// 注意: 当前版本暂未实现此功能，避免循环导入问题
 // 返回值:
 //
 //	error: 启动监听过程中的错误
 func (cm *ConfigManager233) StartWatching() error {
-	// 暂时不启动监听，避免循环导入
-	// TODO: 实现文件监听功能
-	getLogger().Info("ConfigManager233 文件监听暂未实现")
+	if cm.watcher != nil {
+		getLogger().Info("文件监听已启动")
+		return nil
+	}
+
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return fmt.Errorf("创建文件监听器失败: %w", err)
+	}
+
+	err = watcher.Add(cm.configDir)
+	if err != nil {
+		watcher.Close()
+		return fmt.Errorf("添加监听目录失败: %w", err)
+	}
+
+	cm.watcher = watcher
+
+	go func() {
+		defer watcher.Close()
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				// 只处理写和创建事件
+				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
+					ext := strings.ToLower(filepath.Ext(event.Name))
+					if ext == ".json" || ext == ".xlsx" || ext == ".xls" || ext == ".tsv" {
+						getLogger().Info("检测到配置文件变化", "file", event.Name)
+						cm.Reload()
+					}
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				getLogger().Error(err, "文件监听错误")
+			}
+		}
+	}()
+
+	getLogger().Info("文件监听已启动", "dir", cm.configDir)
 	return nil
 }
 
@@ -471,4 +636,46 @@ type ConfigManagerReloadListener struct {
 func (l *ConfigManagerReloadListener) OnConfigDataChange(typ reflect.Type, dataList []interface{}) {
 	getLogger().Info("检测到配置变更", "type", typ.String(), "dataCount", len(dataList))
 	l.manager.Reload()
+}
+
+// GetAllConfigs 获取指定配置的所有项
+// 获取指定配置名称下的所有配置项，返回ID到配置数据的映射
+// 参数:
+//
+//	configName: 配置名称
+//
+// 返回值:
+//
+//	map[string]interface{}: ID到配置数据的映射
+//	bool: 配置是否存在
+func (cm *ConfigManager233) GetAllConfigs(configName string) (map[string]interface{}, bool) {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	configMap, exists := cm.configMaps[configName]
+	return configMap, exists
+}
+
+// GetConfig 获取指定配置项
+// 根据配置名称和ID获取单个配置项
+// 参数:
+//
+//	configName: 配置名称
+//	id: 配置项的唯一标识符
+//
+// 返回值:
+//
+//	interface{}: 配置项数据
+//	bool: 是否找到该配置项
+func (cm *ConfigManager233) GetConfig(configName, id string) (interface{}, bool) {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	configMap, exists := cm.configMaps[configName]
+	if !exists {
+		return nil, false
+	}
+
+	config, exists := configMap[id]
+	return config, exists
 }

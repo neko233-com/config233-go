@@ -88,12 +88,33 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# Check if github remote exists and push to it
+$githubRemote = git remote get-url github 2>$null
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "Pushing tag to github remote..." -ForegroundColor Yellow
+    git push github $Version
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to push tag to github"
+        exit 1
+    }
+}
+
 # Push main branch
 Write-Host "Pushing main branch..." -ForegroundColor Yellow
 git push origin main
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Failed to push main branch"
     exit 1
+}
+
+# Push main branch to github if exists
+if ($LASTEXITCODE -eq 0 -and $githubRemote) {
+    Write-Host "Pushing main branch to github remote..." -ForegroundColor Yellow
+    git push github main
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to push main branch to github"
+        exit 1
+    }
 }
 
 Write-Host ""
