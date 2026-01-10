@@ -26,7 +26,7 @@ ConfigManager233 提供了更简单的全局配置管理接口：
 import "config233-go/pkg/config233"
 
 // 使用全局实例
-config, exists := config233.Instance.GetConfig("StudentConfig", "1")
+config, exists := config233.GetConfigById[Student](config233.Instance, "1")
 if exists {
     fmt.Printf("学生信息: %+v", config)
 }
@@ -90,7 +90,7 @@ cfg := config233.NewConfig233().
 ### 3. 获取配置数据
 
 ```go
-students := cfg.GetConfigList(reflect.TypeOf(Student{}))
+students := config233.GetConfigList[Student](cfg)
 ```
 
 ### 4. 热更新注册

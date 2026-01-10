@@ -5,18 +5,38 @@ Set-Location $scriptDir
 Write-Host "Config233-Go Auto Release Script" -ForegroundColor Green
 Write-Host "================================" -ForegroundColor Green
 
-# Prompt for version
-$Version = Read-Host "Enter version tag (e.g., v1.0.0)"
-if ([string]::IsNullOrWhiteSpace($Version)) {
-    Write-Error "Version cannot be empty"
+# Read current version from version.txt
+$versionFile = "version.txt"
+$currentVersion = Get-Content $versionFile -Raw
+$currentVersion = $currentVersion.Trim()
+
+Write-Host "Current version: $currentVersion"
+
+# Parse version (assume vX.Y.Z)
+$versionPattern = '^v(\d+)\.(\d+)\.(\d+)$'
+if ($currentVersion -notmatch $versionPattern) {
+    Write-Error "Invalid version format in version.txt. Expected vX.Y.Z"
     exit 1
 }
 
-# Ensure version starts with 'v'
-if (-not $Version.StartsWith("v")) {
-    $Version = "v" + $Version
-    Write-Host "Version updated to $Version" -ForegroundColor Cyan
-}
+$major = [int]$matches[1]
+$minor = [int]$matches[2]
+$patch = [int]$matches[3]
+
+# Increment patch version
+$patch++
+$newVersion = "v$major.$minor.$patch"
+
+Write-Host "New version: $newVersion"
+
+# Update version.txt
+$newVersion | Out-File $versionFile -Encoding UTF8
+
+Write-Host "Updated version.txt to $newVersion"
+Write-Host ""
+
+# Use the new version
+$Version = $newVersion
 
 Write-Host "Releasing version $Version"
 Write-Host ""
@@ -76,5 +96,5 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host ""
 Write-Host "Release $Version completed successfully!" -ForegroundColor Green
-Write-Host "The module will be available at: https://pkg.go.dev/config233-go@$Version"
+Write-Host "The module will be available at: https://pkg.go.dev/github.com/neko233-com/config233-go@$Version"
 Write-Host ""

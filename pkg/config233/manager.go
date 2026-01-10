@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -278,72 +279,86 @@ func (cm *ConfigManager233) loadTsvConfig(filePath string) error {
 	return nil
 }
 
-// GetConfig 获取指定配置项
-// GetConfig 获取指定配置项
-// 根据配置名称和ID获取单个配置项
+// GetConfigById retrieves a config item by ID for the given type T.
 // 参数:
 //
-//	configName: 配置名称
-//	id: 配置项的唯一标识符
+//	id: 配置项的唯一标识符 (string, int, or int64)
 //
 // 返回值:
 //
-//	interface{}: 配置项数据
+//	T: 配置项数据
 //	bool: 是否找到该配置项
-func (cm *ConfigManager233) GetConfig(configName, id string) (interface{}, bool) {
+func GetConfigById[T any](cm *ConfigManager233, id interface{}) (T, bool) {
 	cm.mutex.RLock()
 	defer cm.mutex.RUnlock()
 
+	var idStr string
+	switch v := id.(type) {
+	case string:
+		idStr = v
+	case int:
+		idStr = strconv.Itoa(v)
+	case int64:
+		idStr = strconv.FormatInt(v, 10)
+	default:
+		var zero T
+		return zero, false
+	}
+
+	configName := reflect.TypeOf(*new(T)).Name()
 	configMap, exists := cm.configMaps[configName]
+	if !exists {
+		var zero T
+		return zero, false
+	}
+
+	config, exists := configMap[idStr]
+	if !exists {
+		var zero T
+		return zero, false
+	}
+
+	if t, ok := config.(T); ok {
+		return t, true
+	}
+
+	var zero T
+	return zero, false
+}
+
+// GetConfigList retrieves all config items for the given type T.
+// 返回值:
+//
+//	[]T: 配置项数据列表
+//	bool: 配置是否存在
+func GetConfigList[T any](cm *ConfigManager233) ([]T, bool) {
+	cm.mutex.RLock()
+	defer cm.mutex.RUnlock()
+
+	configName := reflect.TypeOf(*new(T)).Name()
+	configList, exists := cm.configs[configName]
 	if !exists {
 		return nil, false
 	}
 
-	config, exists := configMap[id]
-	return config, exists
-}
-
-// GetAllConfigs 获取指定配置的所有项
-// 获取指定配置名称下的所有配置项，返回ID到配置数据的映射
-// 参数:
-//
-//	configName: 配置名称
-//
-// 返回值:
-//
-//	map[string]interface{}: ID到配置数据的映射
-//	bool: 配置是否存在
-func (cm *ConfigManager233) GetAllConfigs(configName string) (map[string]interface{}, bool) {
-	cm.mutex.RLock()
-	defer cm.mutex.RUnlock()
-
-	configMap, exists := cm.configMaps[configName]
-	return configMap, exists
-}
-
-// GetConfigAsStruct 将配置转换为指定类型的struct
-// 获取配置项并将其转换为指定的结构体类型
-// 参数:
-//
-//	configName: 配置名称
-//	id: 配置项ID
-//	target: 目标结构体指针，用于接收转换后的数据
-//
-// 返回值:
-//
-//	error: 转换过程中的错误
-func (cm *ConfigManager233) GetConfigAsStruct(configName, id string, target interface{}) error {
-	config, exists := cm.GetConfig(configName, id)
-	if !exists {
-		return fmt.Errorf("配置项 %s/%s 不存在", configName, id)
+	if list, ok := configList.([]T); ok {
+		return list, true
 	}
 
-	configMap, ok := config.(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("配置项格式不正确")
+	// If stored as []interface{}, try to cast each item
+	if slice, ok := configList.([]interface{}); ok {
+		result := make([]T, len(slice))
+		for i, item := range slice {
+			if t, ok := item.(T); ok {
+				result[i] = t
+			} else {
+				return nil, false
+			}
+		}
+		return result, true
 	}
 
-	return cm.mapToStruct(configMap, target)
+	return nil, false
 }
 
 // Reload 热重载所有配置
@@ -432,36 +447,6 @@ func (cm *ConfigManager233) GetConfigCount(configName string) int {
 		return len(configMap)
 	}
 	return 0
-}
-
-// mapToStruct 将map转换为struct
-func (cm *ConfigManager233) mapToStruct(data map[string]interface{}, target interface{}) error {
-	// 使用简单的类型转换
-	targetValue := reflect.ValueOf(target)
-	if targetValue.Kind() != reflect.Ptr || targetValue.IsNil() {
-		return fmt.Errorf("target 必须是指针")
-	}
-
-	targetValue = targetValue.Elem()
-	targetType := targetValue.Type()
-
-	for i := 0; i < targetValue.NumField(); i++ {
-		field := targetValue.Field(i)
-		fieldType := targetType.Field(i)
-		fieldName := fieldType.Name
-
-		if value, exists := data[fieldName]; exists && field.CanSet() {
-			// 简单类型转换
-			if value != nil {
-				val := reflect.ValueOf(value)
-				if val.Type().AssignableTo(field.Type()) {
-					field.Set(val)
-				}
-			}
-		}
-	}
-
-	return nil
 }
 
 // StartWatching 启动文件监听
