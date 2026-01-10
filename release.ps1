@@ -5,6 +5,36 @@ Set-Location $scriptDir
 Write-Host "Config233-Go Auto Release Script" -ForegroundColor Green
 Write-Host "================================" -ForegroundColor Green
 
+# Check git status first
+Write-Host "Checking git status..." -ForegroundColor Yellow
+$gitStatus = git status --porcelain
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Git command failed"
+    exit 1
+}
+if ($gitStatus) {
+    Write-Error "Working directory is not clean. Please commit or stash changes."
+    Write-Host $gitStatus
+    exit 1
+}
+
+# Run tests
+Write-Host "Running tests..." -ForegroundColor Yellow
+go test ./tests
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Tests failed"
+    exit 1
+}
+
+# Build
+Write-Host "Building..." -ForegroundColor Yellow
+go build ./pkg/config233
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Build failed"
+    exit 1
+}
+
+# Now update version after all checks pass
 # Read current version from version.txt
 $versionFile = "version.txt"
 $currentVersion = Get-Content $versionFile -Raw
@@ -41,34 +71,6 @@ $Version = $newVersion
 Write-Host "Releasing version $Version"
 Write-Host ""
 
-# Check git status
-Write-Host "Checking git status..." -ForegroundColor Yellow
-$gitStatus = git status --porcelain
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Git command failed"
-    exit 1
-}
-if ($gitStatus) {
-    Write-Error "Working directory is not clean. Please commit or stash changes."
-    Write-Host $gitStatus
-    exit 1
-}
-
-# Run tests
-Write-Host "Running tests..." -ForegroundColor Yellow
-go test ./tests
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Tests failed"
-    exit 1
-}
-
-# Build
-Write-Host "Building..." -ForegroundColor Yellow
-go build ./pkg/config233
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Build failed"
-    exit 1
-}
 
 # Create git tag
 Write-Host "Creating git tag $Version..." -ForegroundColor Yellow
