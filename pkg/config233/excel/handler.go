@@ -56,9 +56,14 @@ func (h *ExcelConfigHandler) ReadToFrontEndDataList(configName, configFileFullPa
 		panic(err)
 	}
 
-	// fieldNameRow = 4 (index 3)
-	// dataStartRow = 5 (index 4)
-	if len(rows) < 4 {
+	// Excel 实际格式：
+	// 人类第 1 行 (index 0): 注释
+	// 人类第 2 行 (index 1): 中文字段名
+	// 人类第 3 行 (index 2): Client 字段名
+	// 人类第 4 行 (index 3): 类型 (type)
+	// 人类第 5 行 (index 4): Server 字段名 ← 使用这一行
+	// 人类第 6 行 (index 5): 数据开始
+	if len(rows) < 5 {
 		return &dto.FrontEndConfigDto{
 			DataList:         nil,
 			Type:             h.TypeName(),
@@ -67,22 +72,27 @@ func (h *ExcelConfigHandler) ReadToFrontEndDataList(configName, configFileFullPa
 		}
 	}
 
-	headers := rows[3]
+	// Server 字段名在第 5 行（index 4）
+	headers := rows[4] // Server 字段名在第 5 行（index 4）
 	var dataList []map[string]interface{}
 
-	if len(rows) >= 5 {
-		for _, row := range rows[4:] {
+	if len(rows) >= 6 { // 数据从第 6 行开始（index 5）
+		for _, row := range rows[5:] {
 			item := make(map[string]interface{})
-			for i, cell := range row {
+			// 从第二列开始（跳过第一列的标识符，如 "Server", "Client" 等）
+			for i := 1; i < len(row); i++ {
 				if i < len(headers) {
 					fieldName := headers[i]
 					if fieldName == "" {
 						continue
 					}
-					item[fieldName] = cell
+					item[fieldName] = row[i]
 				}
 			}
-			dataList = append(dataList, item)
+			if len(item) > 0 {
+				// 只添加非空行
+				dataList = append(dataList, item)
+			}
 		}
 	}
 
@@ -114,20 +124,26 @@ func (h *ExcelConfigHandler) ReadConfigAndORM(typ reflect.Type, configName, conf
 		panic(err)
 	}
 
-	// fieldNameRow = 4 (index 3)
-	// dataStartRow = 5 (index 4)
-	if len(rows) < 4 {
+	// Excel 实际格式：
+	// 人类第 1 行 (index 0): 注释
+	// 人类第 2 行 (index 1): 中文字段名
+	// 人类第 3 行 (index 2): Client 字段名
+	// 人类第 4 行 (index 3): 类型 (type)
+	// 人类第 5 行 (index 4): Server 字段名 ← 使用这一行
+	// 人类第 6 行 (index 5): 数据开始
+	if len(rows) < 5 {
 		return nil
 	}
 
-	headers := rows[3]
+	headers := rows[4] // Server 字段名在第 5 行（index 4）
 	var result []interface{}
 
-	if len(rows) >= 5 {
-		for _, row := range rows[4:] {
+	if len(rows) >= 6 { // 数据从第 6 行开始（index 5）
+		for _, row := range rows[5:] {
 			obj := reflect.New(typ).Elem()
 
-			for i, cell := range row {
+			// 从第二列开始（跳过第一列的标识符）
+			for i := 1; i < len(row); i++ {
 				if i >= len(headers) {
 					continue
 				}
@@ -141,7 +157,7 @@ func (h *ExcelConfigHandler) ReadConfigAndORM(typ reflect.Type, configName, conf
 					continue
 				}
 
-				h.setFieldValue(field, cell)
+				h.setFieldValue(field, row[i])
 			}
 
 			result = append(result, obj.Interface())
