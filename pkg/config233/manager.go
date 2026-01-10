@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic" // Add this
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/neko233-com/config233-go/pkg/config233/dto"
@@ -136,7 +137,7 @@ func (cm *ConfigManager233) LoadAllConfigs() error {
 				manager.OnConfigLoadComplete(configName)
 			}
 		}
-		cm.buildGlobalCaches() // 新增：构建全局缓存
+		// cm.buildGlobalCaches() // Removed: Incremental cache update handled in loadXxxConfig
 	}
 
 	return err
@@ -187,6 +188,13 @@ func (cm *ConfigManager233) loadExcelConfig(filePath string) error {
 	cm.configs[fileName] = dto.DataList
 	cm.configMaps[fileName] = configMap
 
+	// Convert to []interface{}
+	slice := make([]interface{}, len(dto.DataList))
+	for i, v := range dto.DataList {
+		slice[i] = v
+	}
+	cm.setConfigCache(fileName, configMap, slice) // Update cache
+
 	return nil
 }
 
@@ -234,6 +242,13 @@ func (cm *ConfigManager233) loadJsonConfig(filePath string) error {
 
 	cm.configs[fileName] = dto.DataList
 	cm.configMaps[fileName] = configMap
+
+	// Convert to []interface{}
+	slice := make([]interface{}, len(dto.DataList))
+	for i, v := range dto.DataList {
+		slice[i] = v
+	}
+	cm.setConfigCache(fileName, configMap, slice) // Update cache
 
 	return nil
 }
@@ -283,26 +298,44 @@ func (cm *ConfigManager233) loadTsvConfig(filePath string) error {
 	cm.configs[fileName] = dto.DataList
 	cm.configMaps[fileName] = configMap
 
+	// Convert to []interface{}
+	slice := make([]interface{}, len(dto.DataList))
+	for i, v := range dto.DataList {
+		slice[i] = v
+	}
+	cm.setConfigCache(fileName, configMap, slice) // Update cache
+
 	return nil
 }
 
 // =====================================================
-// ID 索引缓存（O(1) 查找）
+// ID 索引缓存（O(1) 查找）- 完全无锁化设计
 // =====================================================
 
 var (
-	//  配置文件名 > 配置id > 数据[] map[configName]map[id]interface{}
-	configIdMaps = make(map[string]map[string]interface{})
-	// 配置文件名 > 配置数据[] map[configName][]interface{}
-	configSlices = make(map[string][]interface{})
-	idMapsMutex  sync.RWMutex
+	// globalIdMaps atomic.Value stores *map[string]map[string]interface{}
+	// 使用指针类型以支持 CompareAndSwap（map 不可比较）
+	// 读操作：Load() 完全无锁
+	// 写操作：CAS 重试机制实现无锁更新
+	globalIdMaps atomic.Value
+
+	// globalSlices atomic.Value stores *map[string][]interface{}
+	// 使用指针类型以支持 CompareAndSwap（map 不可比较）
+	// 读操作：Load() 完全无锁
+	// 写操作：CAS 重试机制实现无锁更新
+	globalSlices atomic.Value
 )
 
-// BuildIdIndex 构建指定配置的 ID 索引（加载配置后调用）
-func BuildIdIndex(configName string) {
-	idMapsMutex.Lock()
-	defer idMapsMutex.Unlock()
+func init() {
+	// 初始化 atomic.Value，避免 Load 返回 nil
+	// 存储指针类型
+	globalIdMaps.Store(&map[string]map[string]interface{}{})
+	globalSlices.Store(&map[string][]interface{}{})
+}
 
+// BuildIdIndex 构建指定配置的 ID 索引（加载配置后调用）
+// 采用 Copy-On-Write + CAS 重试策略实现无锁更新
+func BuildIdIndex(configName string) {
 	allConfigs, ok := Instance.GetAllConfigs(configName)
 	if !ok {
 		return
@@ -312,17 +345,36 @@ func BuildIdIndex(configName string) {
 	for id, cfg := range allConfigs {
 		idMap[id] = cfg
 	}
-	configIdMaps[configName] = idMap
+
+	// 无锁 CAS 重试更新
+	for {
+		currentMapPtr := globalIdMaps.Load().(*map[string]map[string]interface{})
+		currentMap := *currentMapPtr
+
+		// Copy-On-Write: 创建新的 map
+		newMap := make(map[string]map[string]interface{}, len(currentMap)+1)
+		for k, v := range currentMap {
+			newMap[k] = v
+		}
+
+		// 更新目标配置
+		newMap[configName] = idMap
+
+		// CAS 尝试更新，如果失败则重试
+		if globalIdMaps.CompareAndSwap(currentMapPtr, &newMap) {
+			break
+		}
+		// CAS 失败，有其他 goroutine 更新了，重试
+	}
+
 	getLogger().Info("构建 ID 索引", "config", configName, "count", len(idMap))
 }
 
 // BuildAllIdIndexes 构建所有已加载配置的 ID 索引
 func BuildAllIdIndexes() {
-	names := Instance.GetLoadedConfigNames()
-	for _, name := range names {
-		BuildIdIndex(name)
-	}
-	getLogger().Info("所有配置 ID 索引构建完成", "configCount", len(names))
+	// 直接调用 buildGlobalCaches 更高效
+	Instance.buildGlobalCaches()
+	getLogger().Info("所有配置 ID 索引构建完成")
 }
 
 // =====================================================
@@ -355,12 +407,10 @@ func GetConfigById[T any](id interface{}) (*T, bool) {
 
 // GetConfigByIdWithName 根据配置名和 ID 获取单个配置
 func GetConfigByIdWithName[T any](configName string, id string) (*T, bool) {
-	// 优先从缓存获取
-	idMapsMutex.RLock()
-	idMap, exists := configIdMaps[configName]
-	idMapsMutex.RUnlock()
-
-	if exists {
+	// 优先从缓存获取 (Lock-Free)
+	idMapsPtr := globalIdMaps.Load().(*map[string]map[string]interface{})
+	idMaps := *idMapsPtr
+	if idMap, exists := idMaps[configName]; exists {
 		if item, ok := idMap[id]; ok {
 			if result, ok := item.(*T); ok {
 				return result, true
@@ -369,7 +419,7 @@ func GetConfigByIdWithName[T any](configName string, id string) (*T, bool) {
 		return nil, false
 	}
 
-	// 缓存未命中，从 Instance 获取
+	// 缓存未命中，从 Instance 获取 (Need Lock)
 	data, ok := Instance.GetConfig(configName, id)
 	if !ok {
 		return nil, false
@@ -390,9 +440,10 @@ func GetAllConfigList[T any]() []*T {
 		configName = typ.Elem().Name()
 	}
 
-	idMapsMutex.RLock()
-	slice, exists := configSlices[configName] // <--- It uses configSliceMaps
-	idMapsMutex.RUnlock()
+	// Lock-Free
+	slicesPtr := globalSlices.Load().(*map[string][]interface{})
+	slices := *slicesPtr
+	slice, exists := slices[configName]
 
 	if !exists {
 		return nil
@@ -474,6 +525,30 @@ func GetKvIntList[T IKvConfig](id string, defaultVal []int) []int {
 		p = strings.TrimSpace(p)
 		if v, err := strconv.Atoi(p); err == nil {
 			result = append(result, v)
+		}
+	}
+	if len(result) == 0 {
+		return defaultVal
+	}
+	return result
+}
+
+// GetKvStringList 从 KvConfig 类型配置中获取 []string 值（逗号分隔）
+func GetKvStringList[T IKvConfig](id string, defaultVal []string) []string {
+	cfg, _ := GetConfigById[T](id)
+	if cfg == nil {
+		return defaultVal
+	}
+	str := (*cfg).GetValue()
+	if str == "" {
+		return defaultVal
+	}
+	parts := strings.Split(str, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" { // 可选：是否过滤空字符串？通常 Kv 配置不应该有空的部分，或者空部分被忽略
+			result = append(result, p)
 		}
 	}
 	if len(result) == 0 {
@@ -690,26 +765,21 @@ func (cm *ConfigManager233) GetConfig(configName, id string) (interface{}, bool)
 	return config, exists
 }
 
-// buildGlobalCaches 构建全局缓存（ID 索引和切片映射）
+// buildGlobalCaches 构建全局缓存（ID 索引和切片映射）- 完全无锁
 func (cm *ConfigManager233) buildGlobalCaches() {
-	idMapsMutex.Lock()
-	defer idMapsMutex.Unlock()
-
-	// 清空原有缓存
-	configIdMaps = make(map[string]map[string]interface{})
-	configSlices = make(map[string][]interface{})
-
 	// 重建 ID 索引
+	newIdMaps := make(map[string]map[string]interface{})
 	for configName, configMap := range cm.configMaps {
-		configIdMaps[configName] = configMap
+		newIdMaps[configName] = configMap
 	}
 
 	// 重建切片映射
+	newSlices := make(map[string][]interface{})
 	for configName, rawConfig := range cm.configs {
 		// 尝试转为 []interface{}
 		// 1. 直接是 []interface{}
 		if slice, ok := rawConfig.([]interface{}); ok {
-			configSlices[configName] = slice
+			newSlices[configName] = slice
 			continue
 		}
 
@@ -719,7 +789,7 @@ func (cm *ConfigManager233) buildGlobalCaches() {
 			for i, v := range sliceOfMap {
 				slice[i] = v
 			}
-			configSlices[configName] = slice
+			newSlices[configName] = slice
 			continue
 		}
 
@@ -731,9 +801,53 @@ func (cm *ConfigManager233) buildGlobalCaches() {
 			for i := 0; i < len; i++ {
 				slice[i] = v.Index(i).Interface()
 			}
-			configSlices[configName] = slice
+			newSlices[configName] = slice
 		}
 	}
 
-	getLogger().Info("全局缓存构建完成")
+	// 直接 Store 覆盖（全量构建时不需要 CAS）
+	// 使用指针类型
+	globalIdMaps.Store(&newIdMaps)
+	globalSlices.Store(&newSlices)
+
+	getLogger().Info("全局缓存构建完成(Lock-Free)")
+}
+
+// setConfigCache 更新单个配置的全局缓存 - 完全无锁
+func (cm *ConfigManager233) setConfigCache(configName string, idMap map[string]interface{}, slice []interface{}) {
+	// 1. 无锁更新 ID Maps (CAS 重试)
+	for {
+		currentIdMapsPtr := globalIdMaps.Load().(*map[string]map[string]interface{})
+		currentIdMaps := *currentIdMapsPtr
+
+		// Copy-On-Write
+		newIdMaps := make(map[string]map[string]interface{}, len(currentIdMaps)+1)
+		for k, v := range currentIdMaps {
+			newIdMaps[k] = v
+		}
+		newIdMaps[configName] = idMap
+
+		// CAS 尝试更新
+		if globalIdMaps.CompareAndSwap(currentIdMapsPtr, &newIdMaps) {
+			break
+		}
+	}
+
+	// 2. 无锁更新 Slices (CAS 重试)
+	for {
+		currentSlicesPtr := globalSlices.Load().(*map[string][]interface{})
+		currentSlices := *currentSlicesPtr
+
+		// Copy-On-Write
+		newSlices := make(map[string][]interface{}, len(currentSlices)+1)
+		for k, v := range currentSlices {
+			newSlices[k] = v
+		}
+		newSlices[configName] = slice
+
+		// CAS 尝试更新
+		if globalSlices.CompareAndSwap(currentSlicesPtr, &newSlices) {
+			break
+		}
+	}
 }

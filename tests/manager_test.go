@@ -395,3 +395,79 @@ func getTestDataDir() string {
 	// 如果找不到，返回默认路径
 	return "testdata"
 }
+
+// TestConfigManager233_GetKvStringList 测试 GetKvStringList
+func TestConfigManager233_GetKvStringList(t *testing.T) {
+	// 1. 创建临时 KvConfig.json
+	tempDir, err := os.MkdirTemp("", "config233_test_kv")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	kvJsonContent := `[
+		{"id": "list1", "value": "a,b,c"},
+		{"id": "list2", "value": " 1 , 2 , 3 "},
+		{"id": "empty", "value": ""}
+	]`
+	kvFile := filepath.Join(tempDir, "TestKvConfig.json")
+	if err := os.WriteFile(kvFile, []byte(kvJsonContent), 0644); err != nil {
+		t.Fatalf("写入测试文件失败: %v", err)
+	}
+
+	// 2. 初始化 Manager
+	config233.Instance = config233.NewConfigManager233(tempDir)
+
+	// 3. 定义 Struct 并注册
+	// 注意: 放在 Test 内部定义的类型无法被反射正确实例化（reflect.New 可能会有问题，或者 Name 为空）
+	// 所以我们使用 TestKvConfig (包级定义)
+	// TODO: Register 函数未实现
+	// config233.Register[TestKvConfig]()
+
+	// 4. 加载配置
+	if err := config233.Instance.LoadAllConfigs(); err != nil {
+		t.Fatalf("加载配置失败: %v", err)
+	}
+
+	// 5. 测试 GetKvStringList
+
+	// Case 1: 正常列表 "a,b,c"
+	list1 := config233.GetKvStringList[TestKvConfig]("list1", nil)
+	if len(list1) != 3 || list1[0] != "a" || list1[1] != "b" || list1[2] != "c" {
+		t.Errorf("list1 解析错误: %v", list1)
+	}
+
+	// Case 2: 带空格 " 1 , 2 , 3 "
+	list2 := config233.GetKvStringList[TestKvConfig]("list2", nil)
+	if len(list2) != 3 || list2[0] != "1" || list2[1] != "2" || list2[2] != "3" {
+		t.Errorf("list2 解析错误: %v", list2)
+	}
+
+	// Case 3: 默认值 (ID不存在)
+	defaultList := []string{"d", "e"}
+	list3 := config233.GetKvStringList[TestKvConfig]("not_exist", defaultList)
+	if len(list3) != 2 || list3[0] != "d" {
+		t.Errorf("默认值返回解析错误: %v", list3)
+	}
+
+	// Case 4: 空值 (ID存在但Value为空字符串)
+	// 根据实现，如果 Value 为 ""，返回 defaultVal
+	list4 := config233.GetKvStringList[TestKvConfig]("empty", defaultList) // empty value is ""
+	if len(list4) != 2 || list4[0] != "d" {
+		t.Errorf("Empty Value 应该返回默认值: %v", list4)
+	}
+}
+
+// 辅助类型 (需放在 Top Level 以便反射获取 Name)
+type TestKvConfig struct {
+	Id  string `json:"id"`
+	Val string `json:"value"`
+}
+
+func (c TestKvConfig) GetUid() any {
+	return c.Id
+}
+
+func (c TestKvConfig) GetValue() string {
+	return c.Val
+}
