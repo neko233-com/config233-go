@@ -23,7 +23,7 @@ func (h *ExcelConfigHandler) TypeName() string {
 
 // ReadToFrontEndDataList 读取配置并转为前端数据列表
 // 读取 Excel 配置文件并转换为前端可用的数据传输对象
-// 默认读取第一个工作表(Sheet1)，第一行为表头
+// 默认读取第一个工作表，第一行为表头
 // 参数:
 //
 //	configName: 配置名称
@@ -39,7 +39,19 @@ func (h *ExcelConfigHandler) ReadToFrontEndDataList(configName, configFileFullPa
 	}
 	defer f.Close()
 
-	rows, err := f.GetRows("Sheet1")
+	// 获取第一个工作表的名称
+	sheets := f.GetSheetList()
+	if len(sheets) == 0 {
+		return &dto.FrontEndConfigDto{
+			DataList:         nil,
+			Type:             h.TypeName(),
+			Suffix:           "xlsx",
+			ConfigNameSimple: configName,
+		}
+	}
+	sheetName := sheets[0]
+
+	rows, err := f.GetRows(sheetName)
 	if err != nil {
 		panic(err)
 	}
@@ -82,7 +94,14 @@ func (h *ExcelConfigHandler) ReadConfigAndORM(typ reflect.Type, configName, conf
 	}
 	defer f.Close()
 
-	rows, err := f.GetRows("Sheet1")
+	// 获取第一个工作表的名称
+	sheets := f.GetSheetList()
+	if len(sheets) == 0 {
+		return nil
+	}
+	sheetName := sheets[0]
+
+	rows, err := f.GetRows(sheetName)
 	if err != nil {
 		panic(err)
 	}
