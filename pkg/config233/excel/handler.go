@@ -56,7 +56,9 @@ func (h *ExcelConfigHandler) ReadToFrontEndDataList(configName, configFileFullPa
 		panic(err)
 	}
 
-	if len(rows) < 2 {
+	// fieldNameRow = 4 (index 3)
+	// dataStartRow = 5 (index 4)
+	if len(rows) < 4 {
 		return &dto.FrontEndConfigDto{
 			DataList:         nil,
 			Type:             h.TypeName(),
@@ -65,17 +67,23 @@ func (h *ExcelConfigHandler) ReadToFrontEndDataList(configName, configFileFullPa
 		}
 	}
 
-	headers := rows[0]
+	headers := rows[3]
 	var dataList []map[string]interface{}
 
-	for _, row := range rows[1:] {
-		item := make(map[string]interface{})
-		for i, cell := range row {
-			if i < len(headers) {
-				item[headers[i]] = cell
+	if len(rows) >= 5 {
+		for _, row := range rows[4:] {
+			item := make(map[string]interface{})
+			for i, cell := range row {
+				if i < len(headers) {
+					fieldName := headers[i]
+					if fieldName == "" {
+						continue
+					}
+					item[fieldName] = cell
+				}
 			}
+			dataList = append(dataList, item)
 		}
-		dataList = append(dataList, item)
 	}
 
 	return &dto.FrontEndConfigDto{
@@ -106,31 +114,38 @@ func (h *ExcelConfigHandler) ReadConfigAndORM(typ reflect.Type, configName, conf
 		panic(err)
 	}
 
-	if len(rows) < 2 {
+	// fieldNameRow = 4 (index 3)
+	// dataStartRow = 5 (index 4)
+	if len(rows) < 4 {
 		return nil
 	}
 
-	headers := rows[0]
+	headers := rows[3]
 	var result []interface{}
 
-	for _, row := range rows[1:] {
-		obj := reflect.New(typ).Elem()
+	if len(rows) >= 5 {
+		for _, row := range rows[4:] {
+			obj := reflect.New(typ).Elem()
 
-		for i, cell := range row {
-			if i >= len(headers) {
-				continue
+			for i, cell := range row {
+				if i >= len(headers) {
+					continue
+				}
+
+				fieldName := headers[i]
+				if fieldName == "" {
+					continue
+				}
+				field := obj.FieldByName(fieldName)
+				if !field.IsValid() || !field.CanSet() {
+					continue
+				}
+
+				h.setFieldValue(field, cell)
 			}
 
-			fieldName := headers[i]
-			field := obj.FieldByName(fieldName)
-			if !field.IsValid() || !field.CanSet() {
-				continue
-			}
-
-			h.setFieldValue(field, cell)
+			result = append(result, obj.Interface())
 		}
-
-		result = append(result, obj.Interface())
 	}
 
 	return result

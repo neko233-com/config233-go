@@ -136,6 +136,7 @@ func (cm *ConfigManager233) LoadAllConfigs() error {
 				manager.OnConfigLoadComplete(configName)
 			}
 		}
+		cm.buildGlobalCaches() // 新增：构建全局缓存
 	}
 
 	return err
@@ -290,8 +291,10 @@ func (cm *ConfigManager233) loadTsvConfig(filePath string) error {
 // =====================================================
 
 var (
-	// configIdMaps map[configName]map[id]interface{}
+	//  配置文件名 > 配置id > 数据[] map[configName]map[id]interface{}
 	configIdMaps = make(map[string]map[string]interface{})
+	// 配置文件名 > 配置数据[] map[configName][]interface{}
+	configSlices = make(map[string][]interface{})
 	idMapsMutex  sync.RWMutex
 )
 
@@ -381,15 +384,22 @@ func GetConfigByIdWithName[T any](configName string, id string) (*T, bool) {
 // 返回 []*T，相当于 map.values() 转 slice
 func GetAllConfigList[T any]() []*T {
 	var zero T
-	configName := reflect.TypeOf(zero).Name()
+	typ := reflect.TypeOf(zero)
+	configName := typ.Name()
+	if typ.Kind() == reflect.Ptr {
+		configName = typ.Elem().Name()
+	}
 
-	allConfigs, ok := Instance.GetAllConfigs(configName)
-	if !ok {
+	idMapsMutex.RLock()
+	slice, exists := configSlices[configName] // <--- It uses configSliceMaps
+	idMapsMutex.RUnlock()
+
+	if !exists {
 		return nil
 	}
 
-	result := make([]*T, 0, len(allConfigs))
-	for _, cfg := range allConfigs {
+	result := make([]*T, 0, len(slice))
+	for _, cfg := range slice {
 		if item, ok := cfg.(*T); ok {
 			result = append(result, item)
 		}
@@ -678,4 +688,52 @@ func (cm *ConfigManager233) GetConfig(configName, id string) (interface{}, bool)
 
 	config, exists := configMap[id]
 	return config, exists
+}
+
+// buildGlobalCaches 构建全局缓存（ID 索引和切片映射）
+func (cm *ConfigManager233) buildGlobalCaches() {
+	idMapsMutex.Lock()
+	defer idMapsMutex.Unlock()
+
+	// 清空原有缓存
+	configIdMaps = make(map[string]map[string]interface{})
+	configSlices = make(map[string][]interface{})
+
+	// 重建 ID 索引
+	for configName, configMap := range cm.configMaps {
+		configIdMaps[configName] = configMap
+	}
+
+	// 重建切片映射
+	for configName, rawConfig := range cm.configs {
+		// 尝试转为 []interface{}
+		// 1. 直接是 []interface{}
+		if slice, ok := rawConfig.([]interface{}); ok {
+			configSlices[configName] = slice
+			continue
+		}
+
+		// 2. 是 []map[string]interface{} (前端模式)
+		if sliceOfMap, ok := rawConfig.([]map[string]interface{}); ok {
+			slice := make([]interface{}, len(sliceOfMap))
+			for i, v := range sliceOfMap {
+				slice[i] = v
+			}
+			configSlices[configName] = slice
+			continue
+		}
+
+		// 3. 反射处理其他切片类型
+		v := reflect.ValueOf(rawConfig)
+		if v.Kind() == reflect.Slice {
+			len := v.Len()
+			slice := make([]interface{}, len)
+			for i := 0; i < len; i++ {
+				slice[i] = v.Index(i).Interface()
+			}
+			configSlices[configName] = slice
+		}
+	}
+
+	getLogger().Info("全局缓存构建完成")
 }
