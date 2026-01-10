@@ -1,6 +1,7 @@
 package config233
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,12 +9,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic" // Add this
+	"sync/atomic"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/neko233-com/config233-go/pkg/config233/dto"
 	"github.com/neko233-com/config233-go/pkg/config233/excel"
-	"github.com/neko233-com/config233-go/pkg/config233/json"
+	jsonhandler "github.com/neko233-com/config233-go/pkg/config233/json"
 	"github.com/neko233-com/config233-go/pkg/config233/tsv"
 )
 
@@ -209,7 +210,7 @@ func (cm *ConfigManager233) loadExcelConfig(filePath string) error {
 //	error: 加载过程中的错误
 func (cm *ConfigManager233) loadJsonConfig(filePath string) error {
 	// 创建 JSON 处理器
-	handler := &json.JsonConfigHandler{}
+	handler := &jsonhandler.JsonConfigHandler{}
 
 	// 获取文件名（不含扩展名）作为配置名
 	fileName := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
@@ -223,18 +224,28 @@ func (cm *ConfigManager233) loadJsonConfig(filePath string) error {
 	// 转换为配置映射
 	configMap := make(map[string]interface{})
 	for _, item := range dto.DataList {
-		// 使用第一列作为 ID（如果存在的话）
+		// 尝试从 map 中提取 ID（支持 "id", "ID", "Id" 等字段）
 		var id string
-		for _, v := range item {
-			if id == "" {
-				if str, ok := v.(string); ok {
-					id = str
-				} else {
-					id = fmt.Sprintf("%v", v)
-				}
+		if idVal, ok := item["id"]; ok {
+			if str, ok := idVal.(string); ok {
+				id = str
+			} else {
+				id = fmt.Sprintf("%v", idVal)
 			}
-			break
+		} else if idVal, ok := item["ID"]; ok {
+			if str, ok := idVal.(string); ok {
+				id = str
+			} else {
+				id = fmt.Sprintf("%v", idVal)
+			}
+		} else if idVal, ok := item["Id"]; ok {
+			if str, ok := idVal.(string); ok {
+				id = str
+			} else {
+				id = fmt.Sprintf("%v", idVal)
+			}
 		}
+
 		if id != "" {
 			configMap[id] = item
 		}
@@ -412,8 +423,19 @@ func GetConfigByIdWithName[T any](configName string, id string) (*T, bool) {
 	idMaps := *idMapsPtr
 	if idMap, exists := idMaps[configName]; exists {
 		if item, ok := idMap[id]; ok {
+			// 尝试直接类型断言
 			if result, ok := item.(*T); ok {
 				return result, true
+			}
+			// 如果是 map，尝试转换为 T
+			if mapItem, ok := item.(map[string]interface{}); ok {
+				var result T
+				// 使用 json 进行转换（简单但有效）
+				if jsonBytes, err := json.Marshal(mapItem); err == nil {
+					if err := json.Unmarshal(jsonBytes, &result); err == nil {
+						return &result, true
+					}
+				}
 			}
 		}
 		return nil, false
@@ -424,9 +446,22 @@ func GetConfigByIdWithName[T any](configName string, id string) (*T, bool) {
 	if !ok {
 		return nil, false
 	}
+
+	// 尝试直接类型断言
 	if result, ok := data.(*T); ok {
 		return result, true
 	}
+
+	// 如果是 map，尝试转换为 T
+	if mapData, ok := data.(map[string]interface{}); ok {
+		var result T
+		if jsonBytes, err := json.Marshal(mapData); err == nil {
+			if err := json.Unmarshal(jsonBytes, &result); err == nil {
+				return &result, true
+			}
+		}
+	}
+
 	return nil, false
 }
 
