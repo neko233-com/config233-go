@@ -59,16 +59,16 @@ func (h *ExcelConfigHandler) ReadToFrontEndDataList(configName, configFileFullPa
 
 	// 第 1 列 column 完全没有跳过
 	// 固定行结构（0-based 索引）：
-	// 第 1 行 (index 0): 注释
+	// 第 1 行 (index 0): 空行或注释
 	// 第 2 行 (index 1): 中文字段名
 	// 第 3 行 (index 2): Client 字段名
 	// 第 4 行 (index 3): 类型 (type)
-	// 第 5 行 (index 4): Server 字段名
+	// 第 5 行 (index 4): Server 字段名 (服务端使用这一行作为字段名)
 	// 第 6 行 (index 5): 数据开始
 	const (
 		clientRowIndex = 2 // Client 字段名行
 		typeRowIndex   = 3 // 类型行
-		serverRowIndex = 4 // Server 字段名行
+		serverRowIndex = 4 // Server 字段名行 (使用这个)
 		dataStartIndex = 5 // 数据开始行
 	)
 

@@ -108,6 +108,13 @@ func (cm *ConfigManager233) LoadAllConfigs() error {
 
 		// 处理不同类型的配置文件
 		if !info.IsDir() {
+			// 跳过临时文件和特殊文件
+			baseName := filepath.Base(path)
+			// 跳过 Excel 临时文件 (以 ~$ 开头) 和包含 ~ 或 # 的文件
+			if strings.HasPrefix(baseName, "~$") || strings.Contains(baseName, "~") || strings.Contains(baseName, "#") {
+				return nil
+			}
+
 			ext := strings.ToLower(filepath.Ext(path))
 			switch ext {
 			case ".xlsx", ".xls":
