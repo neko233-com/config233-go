@@ -65,6 +65,23 @@ $newVersion | Out-File $versionFile -Encoding UTF8
 Write-Host "Updated version.txt to $newVersion"
 Write-Host ""
 
+# Commit version.txt change
+Write-Host "Committing version.txt..." -ForegroundColor Yellow
+git add $versionFile
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to stage version.txt"
+    exit 1
+}
+
+git commit -m "chore: bump version to $newVersion"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to commit version.txt"
+    exit 1
+}
+
+Write-Host "Committed version.txt change"
+Write-Host ""
+
 # Use the new version
 $Version = $newVersion
 
