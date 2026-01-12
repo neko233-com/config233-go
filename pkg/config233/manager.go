@@ -939,8 +939,19 @@ func (cm *ConfigManager233) StartWatching() error {
 				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
 					ext := strings.ToLower(filepath.Ext(event.Name))
 					if ext == ".json" || ext == ".xlsx" || ext == ".xls" || ext == ".tsv" {
-						getLogger().Info("检测到配置文件变化", "file", event.Name)
-						cm.Reload()
+						// 检查是否是已加载的配置
+						configName := strings.TrimSuffix(filepath.Base(event.Name), filepath.Ext(event.Name))
+
+						cm.mutex.RLock()
+						_, exists := cm.configs[configName]
+						cm.mutex.RUnlock()
+
+						if exists {
+							getLogger().Info("检测到已加载配置变化", "file", event.Name)
+
+							// 重新加载配置
+							cm.Reload()
+						}
 					}
 				}
 			case err, ok := <-watcher.Errors:
