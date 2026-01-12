@@ -43,17 +43,15 @@ type ConfigManager233 struct {
 	reloadFuncs      []func()                          // 配置重载时的回调函数列表
 	businessManagers []IBusinessConfigManager          // 业务配置管理器列表
 	watcher          *fsnotify.Watcher                 // 文件监听器
+	globalIdMaps     atomic.Value                      // 缓存 ID -> interface{} (存储 *map[string]map[string]interface{})
+	globalSlices     atomic.Value                      // 缓存 slice []interface{} (存储 *map[string][]interface{})
+	registeredTypes  map[string]reflect.Type           // 已注册的类型
+	registerTypeMu   sync.RWMutex                      // 保护 registeredTypes
 }
 
 // Instance 全局配置管理器实例
 // 提供单例模式的全局配置管理器，方便快速访问
 var Instance *ConfigManager233
-
-// registeredTypes 存储已注册的配置类型，用于将 map 转换为实际结构体
-var registeredTypes = make(map[string]reflect.Type)
-
-// registerTypeMutex 保护 registeredTypes 的并发访问
-var registerTypeMutex sync.RWMutex
 
 // init 初始化全局配置管理器
 // 在包初始化时创建全局配置管理器实例
@@ -65,10 +63,7 @@ func init() {
 		configDir = "config"
 	}
 	Instance = NewConfigManager233(configDir)
-	// 为全局实例自动加载配置
-	if err := Instance.LoadAllConfigs(); err != nil {
-		getLogger().Error(err, "加载配置失败")
-	}
+	// 不在此自动加载，避免初始化顺序问���
 }
 
 // NewConfigManager233 创建新的配置管理器
@@ -88,18 +83,22 @@ func NewConfigManager233(configDir string) *ConfigManager233 {
 		reloadFuncs:      make([]func(), 0),
 		businessManagers: make([]IBusinessConfigManager, 0),
 		watcher:          nil,
+		registeredTypes:  make(map[string]reflect.Type),
 	}
 
-	// 不自动加载配置，让用户手动调用 LoadAllConfigs
+	// 初始化 atomic.Value
+	manager.globalIdMaps.Store(&map[string]map[string]interface{}{})
+	manager.globalSlices.Store(&map[string][]interface{}{})
 
 	return manager
 }
 
-// RegisterType 注册配置结构体类型，用于将加载的配置数据自动转换为指定类型
+// RegisterType 注册配置结构体类型，用于将加��的配置数据自动转换为指定类型
 // 这个函数应该在加载配置之前调用
-func RegisterType[T any]() {
-	var example T
-	typ := reflect.TypeOf(example)
+func (cm *ConfigManager233) RegisterType(typ reflect.Type) {
+	if typ == nil {
+		return
+	}
 	name := typ.Name()
 
 	// 如果是指针类型，则获取元素类型
@@ -108,25 +107,37 @@ func RegisterType[T any]() {
 		typ = typ.Elem()
 	}
 
-	registerTypeMutex.Lock()
-	defer registerTypeMutex.Unlock()
+	cm.registerTypeMu.Lock()
+	defer cm.registerTypeMu.Unlock()
 
-	registeredTypes[name] = typ
-	getLogger().Info("注册配置类型", "name", name, "type", typ.String())
+	cm.registeredTypes[name] = typ
+	getLogger().Info("注册配置类型 (Object)", "name", name, "type", typ.String())
+}
+
+// RegisterType 注册配置结构体类型，用于将加载的配置数据自动转换为指定类型
+// 这个函数应该在加载配置之前调用
+func RegisterType[T any]() {
+	var example T
+	Instance.RegisterType(reflect.TypeOf(example))
+}
+
+// RegisterTypeByReflect 传入 reflect.Type 来注册
+func RegisterTypeByReflect(typ reflect.Type) {
+	Instance.RegisterType(typ)
 }
 
 // getRegisteredType 获取已注册的类型
-func getRegisteredType(configName string) (reflect.Type, bool) {
-	registerTypeMutex.RLock()
-	defer registerTypeMutex.RUnlock()
+func (cm *ConfigManager233) getRegisteredType(configName string) (reflect.Type, bool) {
+	cm.registerTypeMu.RLock()
+	defer cm.registerTypeMu.RUnlock()
 
-	typ, exists := registeredTypes[configName]
+	typ, exists := cm.registeredTypes[configName]
 	return typ, exists
 }
 
 // convertMapToRegisteredStruct 将 map 转换为已注册的结构体类型
-func convertMapToRegisteredStruct(configName string, data map[string]interface{}) (interface{}, error) {
-	typ, exists := getRegisteredType(configName)
+func (cm *ConfigManager233) convertMapToRegisteredStruct(configName string, data map[string]interface{}) (interface{}, error) {
+	typ, exists := cm.getRegisteredType(configName)
 	if !exists {
 		// 如果类型未注册，返回原始 map
 		return data, nil
@@ -149,8 +160,8 @@ func convertMapToRegisteredStruct(configName string, data map[string]interface{}
 }
 
 // convertSliceToRegisteredStructSlice 将 []interface{} 转换为已注册结构体类型的切片
-func convertSliceToRegisteredStructSlice(configName string, data []interface{}) ([]interface{}, error) {
-	typ, exists := getRegisteredType(configName)
+func (cm *ConfigManager233) convertSliceToRegisteredStructSlice(configName string, data []interface{}) ([]interface{}, error) {
+	typ, exists := cm.getRegisteredType(configName)
 	if !exists {
 		// 如果类型未注册，返回原始数据
 		return data, nil
@@ -163,7 +174,7 @@ func convertSliceToRegisteredStructSlice(configName string, data []interface{}) 
 			result = append(result, item)
 		} else if mapItem, ok := item.(map[string]interface{}); ok {
 			// 转换 map 为注册的结构体类型
-			if converted, err := convertMapToRegisteredStruct(configName, mapItem); err == nil {
+			if converted, err := cm.convertMapToRegisteredStruct(configName, mapItem); err == nil {
 				result = append(result, converted)
 			} else {
 				// 转换失败，跳过此项
@@ -281,7 +292,7 @@ func (cm *ConfigManager233) loadExcelConfig(filePath string) error {
 
 		if id != "" {
 			// 如果有注册的类型，转换为具体结构体
-			if converted, err := convertMapToRegisteredStruct(fileName, item); err == nil {
+			if converted, err := cm.convertMapToRegisteredStruct(fileName, item); err == nil {
 				configMap[id] = converted
 				getLogger().Info("成功转换配置项", "index", -1, "configName", fileName, "itemId", item["itemId"])
 			} else {
@@ -299,7 +310,7 @@ func (cm *ConfigManager233) loadExcelConfig(filePath string) error {
 	slice := make([]interface{}, len(dto.DataList))
 	for i, v := range dto.DataList {
 		// 尝试转换为注册的结构体类型
-		if converted, err := convertMapToRegisteredStruct(fileName, v); err == nil {
+		if converted, err := cm.convertMapToRegisteredStruct(fileName, v); err == nil {
 			slice[i] = converted
 			getLogger().Info("成功转换配置项", "index", i, "configName", fileName, "itemId", v["itemId"])
 		} else {
@@ -362,7 +373,7 @@ func (cm *ConfigManager233) loadJsonConfig(filePath string) error {
 
 		if id != "" {
 			// 如果有注册的类型，转换为具体结构体
-			if converted, err := convertMapToRegisteredStruct(fileName, item); err == nil {
+			if converted, err := cm.convertMapToRegisteredStruct(fileName, item); err == nil {
 				configMap[id] = converted
 			} else {
 				// 转换失败则使用原始 map
@@ -378,7 +389,7 @@ func (cm *ConfigManager233) loadJsonConfig(filePath string) error {
 	slice := make([]interface{}, len(dto.DataList))
 	for i, v := range dto.DataList {
 		// 尝试转换为注册的结构体类型
-		if converted, err := convertMapToRegisteredStruct(fileName, v); err == nil {
+		if converted, err := cm.convertMapToRegisteredStruct(fileName, v); err == nil {
 			slice[i] = converted
 			getLogger().Info("成功转换JSON配置项", "index", i, "configName", fileName, "itemId", v["itemId"])
 		} else {
@@ -431,7 +442,7 @@ func (cm *ConfigManager233) loadTsvConfig(filePath string) error {
 		}
 		if id != "" {
 			// 如果有注册的类型，转换为具体结构体
-			if converted, err := convertMapToRegisteredStruct(fileName, item); err == nil {
+			if converted, err := cm.convertMapToRegisteredStruct(fileName, item); err == nil {
 				configMap[id] = converted
 			} else {
 				// 转换失败则使用原始 map
@@ -447,7 +458,7 @@ func (cm *ConfigManager233) loadTsvConfig(filePath string) error {
 	slice := make([]interface{}, len(dto.DataList))
 	for i, v := range dto.DataList {
 		// 尝试转换为注册的结构体类型
-		if converted, err := convertMapToRegisteredStruct(fileName, v); err == nil {
+		if converted, err := cm.convertMapToRegisteredStruct(fileName, v); err == nil {
 			slice[i] = converted
 			getLogger().Info("成功转换TSV配置项", "index", i, "configName", fileName, "itemId", v["itemId"])
 		} else {
@@ -465,27 +476,6 @@ func (cm *ConfigManager233) loadTsvConfig(filePath string) error {
 // ID 索引缓存（O(1) 查找）- 完全无锁化设计
 // =====================================================
 
-var (
-	// globalIdMaps atomic.Value stores *map[string]map[string]interface{}
-	// 使用指针类型以支持 CompareAndSwap（map 不可比较）
-	// 读操作：Load() 完全无锁
-	// 写操作：CAS 重试机制实现无锁更新
-	globalIdMaps atomic.Value
-
-	// globalSlices atomic.Value stores *map[string][]interface{}
-	// 使用指针类型以支持 CompareAndSwap（map 不可比较）
-	// 读操作：Load() 完全无锁
-	// 写操作：CAS 重试机制实现无锁更新
-	globalSlices atomic.Value
-)
-
-func init() {
-	// 初始化 atomic.Value，避免 Load 返回 nil
-	// 存储指针类型
-	globalIdMaps.Store(&map[string]map[string]interface{}{})
-	globalSlices.Store(&map[string][]interface{}{})
-}
-
 // BuildIdIndex 构建指定配置的 ID 索引（加载配置后调用）
 // 采用 Copy-On-Write + CAS 重试策略实现无锁更新
 func BuildIdIndex(configName string) {
@@ -501,7 +491,7 @@ func BuildIdIndex(configName string) {
 
 	// 无锁 CAS 重试更新
 	for {
-		currentMapPtr := globalIdMaps.Load().(*map[string]map[string]interface{})
+		currentMapPtr := Instance.globalIdMaps.Load().(*map[string]map[string]interface{})
 		currentMap := *currentMapPtr
 
 		// Copy-On-Write: 创建新的 map
@@ -514,7 +504,7 @@ func BuildIdIndex(configName string) {
 		newMap[configName] = idMap
 
 		// CAS 尝试更新，如果失败则重试
-		if globalIdMaps.CompareAndSwap(currentMapPtr, &newMap) {
+		if Instance.globalIdMaps.CompareAndSwap(currentMapPtr, &newMap) {
 			break
 		}
 		// CAS 失败，有其他 goroutine 更新了，重试
@@ -534,37 +524,46 @@ func BuildAllIdIndexes() {
 // 泛型查询方法
 // =====================================================
 
+// idToString 将多种类型的 ID 统一转换为 string
+func (cm *ConfigManager233) idToString(id interface{}) (string, bool) {
+	switch v := id.(type) {
+	case string:
+		return v, true
+	case int:
+		return strconv.Itoa(v), true
+	case int64:
+		return strconv.FormatInt(v, 10), true
+	default:
+		getLogger().Error(nil, "不支持的 ID 类型", "type", fmt.Sprintf("%T", id))
+		return "", false
+	}
+}
+
 // GetConfigById 根据 ID 获取单个配置（O(1) 查找）
 // 自动根据类型名推断 configName
 // ID 支持 string | int | int64 类型
 func GetConfigById[T any](id interface{}) (*T, bool) {
 	var zero T
 	configName := reflect.TypeOf(zero).Name()
-
-	// 统一转成 string
-	var idStr string
-	switch v := id.(type) {
-	case string:
-		idStr = v
-	case int:
-		idStr = strconv.Itoa(v)
-	case int64:
-		idStr = strconv.FormatInt(v, 10)
-	default:
-		getLogger().Error(nil, "GetConfigById 不支持的 ID 类型", "type", fmt.Sprintf("%T", id))
-		return nil, false
+	if reflect.TypeOf(zero).Kind() == reflect.Ptr {
+		configName = reflect.TypeOf(zero).Elem().Name()
 	}
 
-	return GetConfigByIdWithName[T](configName, idStr)
+	return GetConfigByIdWithName[T](configName, id)
 }
 
 // GetConfigByIdWithName 根据配置名和 ID 获取单个配置
-func GetConfigByIdWithName[T any](configName string, id string) (*T, bool) {
+func GetConfigByIdWithName[T any](configName string, configId interface{}) (*T, bool) {
+	idStr, ok := Instance.idToString(configId)
+	if !ok {
+		return nil, false
+	}
 	// 优先从缓存获取 (Lock-Free)
-	idMapsPtr := globalIdMaps.Load().(*map[string]map[string]interface{})
+	idMapsPtr := Instance.globalIdMaps.Load().(*map[string]map[string]interface{})
+
 	idMaps := *idMapsPtr
 	if idMap, exists := idMaps[configName]; exists {
-		if item, ok := idMap[id]; ok {
+		if item, ok := idMap[idStr]; ok {
 			// 尝试直接类型断言
 			if result, ok := item.(*T); ok {
 				return result, true
@@ -580,7 +579,7 @@ func GetConfigByIdWithName[T any](configName string, id string) (*T, bool) {
 	}
 
 	// 缓存未命中，从 Instance 获取 (Need Lock)
-	data, ok := Instance.GetConfig(configName, id)
+	data, ok := Instance.GetConfig(configName, configId)
 	if !ok {
 		return nil, false
 	}
@@ -687,7 +686,7 @@ func GetAllConfigList[T any]() []*T {
 	}
 
 	// Lock-Free
-	slicesPtr := globalSlices.Load().(*map[string][]interface{})
+	slicesPtr := Instance.globalSlices.Load().(*map[string][]interface{})
 	slices := *slicesPtr
 	slice, exists := slices[configName]
 
@@ -708,7 +707,7 @@ func GetAllConfigList[T any]() []*T {
 // =====================================================
 
 // GetKvInt 从 KvConfig 类型配置中获取 int 值
-func GetKvInt[T IKvConfig](id string, defaultVal int) int {
+func GetKvInt[T IKvConfig](id interface{}, defaultVal int) int {
 	cfg, _ := GetConfigById[T](id)
 	if cfg == nil {
 		return defaultVal
@@ -722,7 +721,7 @@ func GetKvInt[T IKvConfig](id string, defaultVal int) int {
 }
 
 // GetKvString 从 KvConfig 类型配置中获取 string 值
-func GetKvString[T IKvConfig](id string, defaultVal string) string {
+func GetKvString[T IKvConfig](id interface{}, defaultVal string) string {
 	cfg, _ := GetConfigById[T](id)
 	if cfg == nil {
 		return defaultVal
@@ -731,7 +730,7 @@ func GetKvString[T IKvConfig](id string, defaultVal string) string {
 }
 
 // GetKvFloat 从 KvConfig 类型配置中获取 float64 值
-func GetKvFloat[T IKvConfig](id string, defaultVal float64) float64 {
+func GetKvFloat[T IKvConfig](id interface{}, defaultVal float64) float64 {
 	cfg, _ := GetConfigById[T](id)
 	if cfg == nil {
 		return defaultVal
@@ -745,7 +744,7 @@ func GetKvFloat[T IKvConfig](id string, defaultVal float64) float64 {
 }
 
 // GetKvBool 从 KvConfig 类型配置中获取 bool 值
-func GetKvBool[T IKvConfig](id string, defaultVal bool) bool {
+func GetKvBool[T IKvConfig](id interface{}, defaultVal bool) bool {
 	cfg, _ := GetConfigById[T](id)
 	if cfg == nil {
 		return defaultVal
@@ -755,7 +754,7 @@ func GetKvBool[T IKvConfig](id string, defaultVal bool) bool {
 }
 
 // GetKvIntList 从 KvConfig 类型配置中获取 []int 值（逗号分隔）
-func GetKvIntList[T IKvConfig](id string, defaultVal []int) []int {
+func GetKvIntList[T IKvConfig](id interface{}, defaultVal []int) []int {
 	cfg, _ := GetConfigById[T](id)
 	if cfg == nil {
 		return defaultVal
@@ -779,7 +778,7 @@ func GetKvIntList[T IKvConfig](id string, defaultVal []int) []int {
 }
 
 // GetKvStringList 从 KvConfig 类型配置中获取 []string 值（逗号分隔）
-func GetKvStringList[T IKvConfig](id string, defaultVal []string) []string {
+func GetKvStringList[T IKvConfig](id interface{}, defaultVal []string) []string {
 	cfg, _ := GetConfigById[T](id)
 	if cfg == nil {
 		return defaultVal
@@ -997,7 +996,11 @@ func (cm *ConfigManager233) GetAllConfigs(configName string) (map[string]interfa
 //
 //	interface{}: 配置项数据
 //	bool: 是否找到该配置项
-func (cm *ConfigManager233) GetConfig(configName, id string) (interface{}, bool) {
+func (cm *ConfigManager233) GetConfig(configName string, id interface{}) (interface{}, bool) {
+	idStr, ok := cm.idToString(id)
+	if !ok {
+		return nil, false
+	}
 	cm.mutex.RLock()
 	defer cm.mutex.RUnlock()
 
@@ -1006,7 +1009,7 @@ func (cm *ConfigManager233) GetConfig(configName, id string) (interface{}, bool)
 		return nil, false
 	}
 
-	config, exists := configMap[id]
+	config, exists := configMap[idStr]
 	return config, exists
 }
 
@@ -1019,7 +1022,7 @@ func (cm *ConfigManager233) buildGlobalCaches() {
 		convertedMap := make(map[string]interface{}, len(configMap))
 		for id, value := range configMap {
 			if mapValue, ok := value.(map[string]interface{}); ok {
-				if converted, err := convertMapToRegisteredStruct(configName, mapValue); err == nil {
+				if converted, err := cm.convertMapToRegisteredStruct(configName, mapValue); err == nil {
 					convertedMap[id] = converted
 				} else {
 					// 转换失败则使用原始值
@@ -1039,7 +1042,7 @@ func (cm *ConfigManager233) buildGlobalCaches() {
 		// 尝试转为 []interface{}
 		// 1. 直接是 []interface{}
 		if slice, ok := rawConfig.([]interface{}); ok {
-			if converted, err := convertSliceToRegisteredStructSlice(configName, slice); err == nil {
+			if converted, err := cm.convertSliceToRegisteredStructSlice(configName, slice); err == nil {
 				newSlices[configName] = converted
 			} else {
 				newSlices[configName] = slice
@@ -1053,7 +1056,7 @@ func (cm *ConfigManager233) buildGlobalCaches() {
 			for i, v := range sliceOfMap {
 				interfaceSlice[i] = v
 			}
-			if converted, err := convertSliceToRegisteredStructSlice(configName, interfaceSlice); err == nil {
+			if converted, err := cm.convertSliceToRegisteredStructSlice(configName, interfaceSlice); err == nil {
 				newSlices[configName] = converted
 			} else {
 				newSlices[configName] = interfaceSlice
@@ -1069,7 +1072,7 @@ func (cm *ConfigManager233) buildGlobalCaches() {
 			for i := 0; i < len; i++ {
 				slice[i] = v.Index(i).Interface()
 			}
-			if converted, err := convertSliceToRegisteredStructSlice(configName, slice); err == nil {
+			if converted, err := cm.convertSliceToRegisteredStructSlice(configName, slice); err == nil {
 				newSlices[configName] = converted
 			} else {
 				newSlices[configName] = slice
@@ -1079,20 +1082,20 @@ func (cm *ConfigManager233) buildGlobalCaches() {
 
 	// 直接 Store 覆盖（全量构建时不需要 CAS）
 	// 使用指针类型
-	globalIdMaps.Store(&newIdMaps)
-	globalSlices.Store(&newSlices)
+	cm.globalIdMaps.Store(&newIdMaps)
+	cm.globalSlices.Store(&newSlices)
 
 	getLogger().Info("全局缓存构建完成(Lock-Free)")
 }
 
 // GlobalIdMapsLoad 导出全局 ID 映射缓存，用于调试
 func GlobalIdMapsLoad() interface{} {
-	return globalIdMaps.Load()
+	return Instance.globalIdMaps.Load()
 }
 
 // GlobalSlicesLoad 导出全局切片缓存，用于调试
 func GlobalSlicesLoad() interface{} {
-	return globalSlices.Load()
+	return Instance.globalSlices.Load()
 }
 
 // setConfigCache 更新单个配置的全局缓存 - 完全无锁
@@ -1101,7 +1104,7 @@ func (cm *ConfigManager233) setConfigCache(configName string, idMap map[string]i
 	convertedIdMap := make(map[string]interface{}, len(idMap))
 	for id, value := range idMap {
 		if mapValue, ok := value.(map[string]interface{}); ok {
-			if converted, err := convertMapToRegisteredStruct(configName, mapValue); err == nil {
+			if converted, err := cm.convertMapToRegisteredStruct(configName, mapValue); err == nil {
 				convertedIdMap[id] = converted
 			} else {
 				// 转换失败则使用原始值
@@ -1115,7 +1118,7 @@ func (cm *ConfigManager233) setConfigCache(configName string, idMap map[string]i
 		}
 	}
 
-	convertedSlice, err := convertSliceToRegisteredStructSlice(configName, slice)
+	convertedSlice, err := cm.convertSliceToRegisteredStructSlice(configName, slice)
 	if err != nil {
 		getLogger().Error(err, "转换配置切片失败", "configName", configName)
 		convertedSlice = slice
@@ -1123,7 +1126,7 @@ func (cm *ConfigManager233) setConfigCache(configName string, idMap map[string]i
 
 	// 1. 无锁更新 ID Maps (CAS 重试)
 	for {
-		currentIdMapsPtr := globalIdMaps.Load().(*map[string]map[string]interface{})
+		currentIdMapsPtr := cm.globalIdMaps.Load().(*map[string]map[string]interface{})
 		currentIdMaps := *currentIdMapsPtr
 
 		// Copy-On-Write
@@ -1134,14 +1137,14 @@ func (cm *ConfigManager233) setConfigCache(configName string, idMap map[string]i
 		newIdMaps[configName] = convertedIdMap
 
 		// CAS 尝试更新
-		if globalIdMaps.CompareAndSwap(currentIdMapsPtr, &newIdMaps) {
+		if cm.globalIdMaps.CompareAndSwap(currentIdMapsPtr, &newIdMaps) {
 			break
 		}
 	}
 
 	// 2. 无锁更新 Slices (CAS 重试)
 	for {
-		currentSlicesPtr := globalSlices.Load().(*map[string][]interface{})
+		currentSlicesPtr := cm.globalSlices.Load().(*map[string][]interface{})
 		currentSlices := *currentSlicesPtr
 
 		// Copy-On-Write
@@ -1152,8 +1155,54 @@ func (cm *ConfigManager233) setConfigCache(configName string, idMap map[string]i
 		newSlices[configName] = convertedSlice
 
 		// CAS 尝试更新
-		if globalSlices.CompareAndSwap(currentSlicesPtr, &newSlices) {
+		if cm.globalSlices.CompareAndSwap(currentSlicesPtr, &newSlices) {
 			break
 		}
 	}
+}
+
+// GetConfigMap 获取配置映射
+// 获取某个配置的 ID -> 配置 数据映射
+// 参数:
+//
+//	configName: 配置名称
+//
+// 返回值:
+//
+//	map[string]interface{}: ID -> 配置 数据映射
+//	bool: 配置是否存在
+func (cm *ConfigManager233) GetConfigMap(configName string) (map[string]interface{}, bool) {
+	idMapsPtr := cm.globalIdMaps.Load().(*map[string]map[string]interface{})
+	idMaps := *idMapsPtr
+	idMap, exists := idMaps[configName]
+	return idMap, exists
+}
+
+// GetConfigMap 获取某类型的 ID -> 配置 Map（纯泛型）
+func GetConfigMap[T any]() map[string]*T {
+	var zero T
+	configName := reflect.TypeOf(zero).Name()
+	if reflect.TypeOf(zero).Kind() == reflect.Ptr {
+		configName = reflect.TypeOf(zero).Elem().Name()
+	}
+
+	idMapsPtr := Instance.globalIdMaps.Load().(*map[string]map[string]interface{})
+	idMaps := *idMapsPtr
+	idMap, exists := idMaps[configName]
+	if !exists {
+		return nil
+	}
+
+	result := make(map[string]*T, len(idMap))
+	for id, value := range idMap {
+		if typedValue, ok := value.(*T); ok {
+			result[id] = typedValue
+		} else if mapValue, ok := value.(map[string]interface{}); ok {
+			// 如果缓存中还是 map，尝试转换并存回（虽然通常 buildGlobalCaches 已经处理过了）
+			if converted, err := convertMapToStruct[T](mapValue); err == nil {
+				result[id] = converted
+			}
+		}
+	}
+	return result
 }
