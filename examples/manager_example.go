@@ -24,7 +24,7 @@ func main() {
 
 	// 创建自定义实例
 	fmt.Println("\n=== 创建自定义实例 ===")
-	manager := config233.NewConfigManager233("testdata")
+	manager := config233.NewConfigManager233("../testdata")
 
 	err := manager.LoadAllConfigs()
 	if err != nil {

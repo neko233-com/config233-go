@@ -2,6 +2,12 @@
 
 Config233 的 Go 语言实现，用于配置文件的加载、热更新和数据管理。
 
+## 文档
+
+- [API 可见性说明](API_VISIBILITY.md) - 了解哪些内容对第三方用户可见
+- [贡献指南](CONTRIBUTING.md) - 项目结构和开发规范
+- [更新日志](ChangeLog/) - 版本更新记录
+
 ## 功能特性
 
 - 支持多种配置文件格式（JSON, TSV, Excel）
@@ -52,9 +58,48 @@ go test ./tests -v
 go test ./tests -cover
 ```
 
-## 示例
+## 项目结构
 
-查看 `logr_example.go` 和 `manager_example.go` 获取使用示例。
+```
+config233-go/
+├── pkg/config233/          # 公开 API - 这是第三方库用户可以导入的包
+│   ├── config233.go        # 核心配置管理
+│   ├── manager.go          # 配置管理器
+│   ├── listener.go         # 监听器接口
+│   ├── handler.go          # 处理器接口
+│   ├── dto/                # 数据传输对象
+│   ├── excel/              # Excel 处理器
+│   ├── json/               # JSON 处理器
+│   └── tsv/                # TSV 处理器
+├── examples/               # 示例代码（不会被第三方导入）
+│   ├── example_usage.go
+│   ├── manager_example.go
+│   ├── logr_example.go
+│   └── validation_demo.go
+├── tests/                  # 测试代码
+├── testdata/               # 测试数据
+├── CheckOutput/            # 临时输出目录（被 git 忽略）
+└── GeneratedStruct/        # 生成的结构体代码（被 git 忽略）
+```
+
+## 公开 API
+
+当用户导入 `github.com/neko233-com/config233-go/pkg/config233` 时，他们可以访问：
+
+- `Config233` - 核心配置管理类
+- `ConfigManager233` - 简化的配置管理器
+- `IConfigHandler` - 配置处理器接口
+- `IConfigListener` - 配置监听器接口
+- `dto` 包中的数据传输对象
+- 各种处理器（excel, json, tsv）
+
+## 示例代码
+
+查看 `examples/` 目录获取完整的使用示例：
+- `examples/example_usage.go` - 基本使用
+- `examples/manager_example.go` - 配置管理器使用
+- `examples/logr_example.go` - 日志集成
+- `examples/validation_demo.go` - 配置验证
 
 ### 日志配置
 
