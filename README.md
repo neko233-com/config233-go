@@ -29,17 +29,31 @@ go get config233-go
 ConfigManager233 提供了更简单的全局配置管理接口：
 
 ```go
-import "config233-go/pkg/config233"
+import "github.com/neko233-com/config233-go/pkg/config233"
 
-// 使用全局实例
-config, exists := GetConfigById[Student]("1")
+// 1. 注册配置类型
+config233.RegisterType[Student]()
+
+// 2. 创建管理器并加载配置
+manager := config233.NewConfigManager233("./myconfig")
+manager.LoadAllConfigs()
+
+// 3. 使用配置
+// 按 ID 获取配置
+config, exists := config233.GetConfigById[Student]("1")
 if exists {
     fmt.Printf("学生信息: %+v", config)
 }
 
-// 或者创建自定义实例
-manager := config233.NewConfigManager233("./myconfig")
-manager.StartWatching() // 启动热更新监听
+// 获取所有配置列表
+configs := config233.GetConfigList[Student]()
+fmt.Printf("共有 %d 个配置", len(configs))
+
+// 获取配置映射（ID -> Config）
+configMap := config233.GetConfigMap[Student]()
+
+// 启动热更新监听
+manager.StartWatching()
 ```
 
 ## 测试
@@ -86,12 +100,28 @@ config233-go/
 
 当用户导入 `github.com/neko233-com/config233-go/pkg/config233` 时，他们可以访问：
 
+### 核心类型
 - `Config233` - 核心配置管理类
 - `ConfigManager233` - 简化的配置管理器
+- `IKvConfig` - KV 配置接口（用于键值对配置）
 - `IConfigHandler` - 配置处理器接口
 - `IConfigListener` - 配置监听器接口
 - `dto` 包中的数据传输对象
 - 各种处理器（excel, json, tsv）
+
+### 泛型查询函数（推荐使用）
+- `GetConfigById[T any](id interface{}) (*T, bool)` - 根据 ID 获取单个配置
+- `GetConfigList[T any]() []*T` - 获取所有配置列表
+- `GetConfigMap[T any]() map[string]*T` - 获取配置映射（ID -> Config）
+- `GetKvStringList[T IKvConfig](id string, defaultVal []string) []string` - 从 KV 配置获取字符串列表
+
+### 类型注册
+- `RegisterType[T any]()` - 注册配置结构体类型
+- `RegisterTypeByReflect(typ reflect.Type)` - 通过反射类型注册
+
+### 配置管理器
+- `GetInstance() *ConfigManager233` - 获取全局单例实例
+- `NewConfigManager233(configDir string) *ConfigManager233` - 创建配置管理器（已废弃，建议使用 GetInstance）
 
 ## 示例代码
 
@@ -135,6 +165,21 @@ cfg := config233.NewConfig233().
 ### 3. 获取配置数据
 
 ```go
+// 使用 ConfigManager233（推荐）
+config233.RegisterType[Student]()
+manager := config233.NewConfigManager233("./config")
+manager.LoadAllConfigs()
+
+// 获取所有配置列表
+students := config233.GetConfigList[Student]()
+
+// 按 ID 获取
+student, exists := config233.GetConfigById[Student]("1")
+
+// 获取配置映射
+studentMap := config233.GetConfigMap[Student]()
+
+// 使用 Config233（完整功能）
 students := config233.GetConfigList[Student](cfg)
 ```
 

@@ -58,7 +58,7 @@ func main() {
 	}
 
 	// 4. 验证修复效果
-	itemConfigs := config233.GetAllConfigList[ItemConfig]()
+	itemConfigs := config233.GetConfigList[ItemConfig]()
 	fmt.Printf("\n转换后的配置项数量: %d\n", len(itemConfigs))
 
 	for i, config := range itemConfigs {

@@ -38,7 +38,7 @@ func main() {
 	}
 
 	// 3. 测试获取所有配置列表 - 这是修复后的核心功能
-	itemConfigs := config233.GetAllConfigList[ItemConfig]()
+	itemConfigs := config233.GetConfigList[ItemConfig]()
 	fmt.Printf("获取到 %d 个 ItemConfig 项\n", len(itemConfigs))
 
 	for i, config := range itemConfigs {
@@ -66,5 +66,5 @@ func main() {
 			config.Itemid, config.Itemname, config.Quality)
 	}
 
-	fmt.Println("\n修复成功！GetAllConfigList 现在返回实际的 struct 类型，而不是 map[string]interface{}")
+	fmt.Println("\n修复成功！GetConfigList 现在返回实际的 struct 类型，而不是 map[string]interface{}")
 }

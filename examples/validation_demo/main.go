@@ -39,8 +39,8 @@ func main() {
 		log.Printf("加载配置失败: %v", err)
 	}
 
-	fmt.Println("\n1. 验证 GetAllConfigList 返回 struct 类型:")
-	itemConfigs := config233.GetAllConfigList[ItemConfig]()
+	fmt.Println("\n1. 验证 GetConfigList 返回 struct 类型:")
+	itemConfigs := config233.GetConfigList[ItemConfig]()
 	fmt.Printf("   获取到 %d 个配置项\n", len(itemConfigs))
 
 	for i, config := range itemConfigs {
@@ -77,7 +77,7 @@ func main() {
 	}
 
 	fmt.Println("\n=== 验证完成 ===")
-	fmt.Println("✓ GetAllConfigList 现在返回 []*ItemConfig 而不是 []interface{}")
+	fmt.Println("✓ GetConfigList 现在返回 []*ItemConfig 而不是 []interface{}")
 	fmt.Println("✓ GetConfigById 现在返回 *ItemConfig 而不是 interface{}")
 	fmt.Println("✓ 可以直接访问结构体字段，无需类型断言")
 	fmt.Println("✓ 正确处理 Excel 中的空值（转换为对应类型的零值）")

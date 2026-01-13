@@ -726,12 +726,6 @@ func GetConfigList[T any]() []*T {
 	return result
 }
 
-// GetAllConfigList 获取某类型的所有配置列表（GetConfigList 的别名）
-// 返回 []*T，相当于 map.values() 转 slice
-func GetAllConfigList[T any]() []*T {
-	return GetConfigList[T]()
-}
-
 // GetConfigMap 获取某类型的配置映射（纯泛型）
 // 返回 map[string]*T，其中 key 是配置的 ID
 func GetConfigMap[T any]() map[string]*T {
