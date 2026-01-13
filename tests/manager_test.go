@@ -420,8 +420,8 @@ func getTestDataDir() string {
 	return "testdata"
 }
 
-// TestConfigManager233_GetKvStringList 测试 GetKvStringList
-func TestConfigManager233_GetKvStringList(t *testing.T) {
+// TestConfigManager233_GetKvToCsvStringList 测试 GetKvToCsvStringList
+func TestConfigManager233_GetKvToCsvStringList(t *testing.T) {
 	// 1. 创建临时 KvConfig.json
 	tempDir, err := os.MkdirTemp("", "config233_test_kv")
 	if err != nil {
@@ -453,30 +453,30 @@ func TestConfigManager233_GetKvStringList(t *testing.T) {
 		t.Fatalf("加载配置失败: %v", err)
 	}
 
-	// 5. 测试 GetKvStringList
+	// 5. 测试 GetKvToCsvStringList
 
 	// Case 1: 正常列表 "a,b,c"
-	list1 := config233.GetKvStringList[TestKvConfig]("list1", nil)
+	list1 := config233.GetKvToCsvStringList[TestKvConfig]("list1", nil)
 	if len(list1) != 3 || list1[0] != "a" || list1[1] != "b" || list1[2] != "c" {
 		t.Errorf("list1 解析错误: %v", list1)
 	}
 
 	// Case 2: 带空格 " 1 , 2 , 3 "
-	list2 := config233.GetKvStringList[TestKvConfig]("list2", nil)
+	list2 := config233.GetKvToCsvStringList[TestKvConfig]("list2", nil)
 	if len(list2) != 3 || list2[0] != "1" || list2[1] != "2" || list2[2] != "3" {
 		t.Errorf("list2 解析错误: %v", list2)
 	}
 
 	// Case 3: 默认值 (ID不存在)
 	defaultList := []string{"d", "e"}
-	list3 := config233.GetKvStringList[TestKvConfig]("not_exist", defaultList)
+	list3 := config233.GetKvToCsvStringList[TestKvConfig]("not_exist", defaultList)
 	if len(list3) != 2 || list3[0] != "d" {
 		t.Errorf("默认值返回解析错误: %v", list3)
 	}
 
 	// Case 4: 空值 (ID存在但Value为空字符串)
 	// 根据实现，如果 Value 为 ""，返回 defaultVal
-	list4 := config233.GetKvStringList[TestKvConfig]("empty", defaultList) // empty value is ""
+	list4 := config233.GetKvToCsvStringList[TestKvConfig]("empty", defaultList) // empty value is ""
 	if len(list4) != 2 || list4[0] != "d" {
 		t.Errorf("Empty Value 应该返回默认值: %v", list4)
 	}

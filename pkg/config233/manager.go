@@ -757,7 +757,127 @@ func GetConfigMap[T any]() map[string]*T {
 	return result
 }
 
-// GetKvStringList 从 KV 配置中获取字符串列表
+// GetKvToString 从 KV 配置中获取字符串值
+// 参数:
+//
+//	id: 配置项的 ID
+//	defaultVal: 如果配置不存在或值为空时的默认值
+//
+// 返回值:
+//
+//	string: 配置的字符串值
+func GetKvToString[T IKvConfig](id string, defaultVal string) string {
+	cm := GetInstance()
+	configName := typeNameOf[T]()
+
+	// 获取配置项
+	config, exists := getConfigByIdWithNameForManager[T](cm, configName, id)
+	if !exists {
+		return defaultVal
+	}
+
+	// 使用类型断言将 *T 转换为 IKvConfig 接口
+	kvConfig, ok := any(config).(IKvConfig)
+	if !ok {
+		return defaultVal
+	}
+
+	// 调用 GetValue 方法获取值
+	value := kvConfig.GetValue()
+	if value == "" {
+		return defaultVal
+	}
+
+	return value
+}
+
+// GetKvToInt 从 KV 配置中获取整数值
+// 参数:
+//
+//	id: 配置项的 ID
+//	defaultVal: 如果配置不存在或值无效时的默认值
+//
+// 返回值:
+//
+//	int: 配置的整数值
+func GetKvToInt[T IKvConfig](id string, defaultVal int) int {
+	cm := GetInstance()
+	configName := typeNameOf[T]()
+
+	// 获取配置项
+	config, exists := getConfigByIdWithNameForManager[T](cm, configName, id)
+	if !exists {
+		return defaultVal
+	}
+
+	// 使用类型断言将 *T 转换为 IKvConfig 接口
+	kvConfig, ok := any(config).(IKvConfig)
+	if !ok {
+		return defaultVal
+	}
+
+	// 调用 GetValue 方法获取值
+	value := kvConfig.GetValue()
+	if value == "" {
+		return defaultVal
+	}
+
+	// 尝试转换为整数
+	if intVal, err := strconv.Atoi(value); err == nil {
+		return intVal
+	}
+
+	return defaultVal
+}
+
+// GetKvToBoolean 从 KV 配置中获取布尔值
+// 参数:
+//
+//	id: 配置项的 ID
+//	defaultVal: 如果配置不存在或值无效时的默认值
+//
+// 返回值:
+//
+//	bool: 配置的布尔值
+func GetKvToBoolean[T IKvConfig](id string, defaultVal bool) bool {
+	cm := GetInstance()
+	configName := typeNameOf[T]()
+
+	// 获取配置项
+	config, exists := getConfigByIdWithNameForManager[T](cm, configName, id)
+	if !exists {
+		return defaultVal
+	}
+
+	// 使用类型断言将 *T 转换为 IKvConfig 接口
+	kvConfig, ok := any(config).(IKvConfig)
+	if !ok {
+		return defaultVal
+	}
+
+	// 调用 GetValue 方法获取值
+	value := kvConfig.GetValue()
+	if value == "" {
+		return defaultVal
+	}
+
+	// 尝试转换为布尔值（支持 true/false, 1/0, yes/no, on/off）
+	lowerValue := strings.ToLower(strings.TrimSpace(value))
+	switch lowerValue {
+	case "true", "1", "yes", "on", "enabled":
+		return true
+	case "false", "0", "no", "off", "disabled":
+		return false
+	default:
+		// 如果无法解析，尝试使用 strconv.ParseBool
+		if boolVal, err := strconv.ParseBool(value); err == nil {
+			return boolVal
+		}
+		return defaultVal
+	}
+}
+
+// GetKvToCsvStringList 从 KV 配置中获取 CSV 字符串列表（按逗号分隔）
 // 参数:
 //
 //	id: 配置项的 ID
@@ -766,7 +886,7 @@ func GetConfigMap[T any]() map[string]*T {
 // 返回值:
 //
 //	[]string: 解析后的字符串列表（按逗号分隔）
-func GetKvStringList[T IKvConfig](id string, defaultVal []string) []string {
+func GetKvToCsvStringList[T IKvConfig](id string, defaultVal []string) []string {
 	cm := GetInstance()
 	configName := typeNameOf[T]()
 

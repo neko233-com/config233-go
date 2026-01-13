@@ -113,7 +113,10 @@ config233-go/
 - `GetConfigById[T any](id interface{}) (*T, bool)` - 根据 ID 获取单个配置
 - `GetConfigList[T any]() []*T` - 获取所有配置列表
 - `GetConfigMap[T any]() map[string]*T` - 获取配置映射（ID -> Config）
-- `GetKvStringList[T IKvConfig](id string, defaultVal []string) []string` - 从 KV 配置获取字符串列表
+- `GetKvToString[T IKvConfig](id string, defaultVal string) string` - 从 KV 配置获取字符串值
+- `GetKvToInt[T IKvConfig](id string, defaultVal int) int` - 从 KV 配置获取整数值
+- `GetKvToBoolean[T IKvConfig](id string, defaultVal bool) bool` - 从 KV 配置获取布尔值
+- `GetKvToCsvStringList[T IKvConfig](id string, defaultVal []string) []string` - 从 KV 配置获取 CSV 字符串列表（按逗号分隔）
 
 ### 类型注册
 - `RegisterType[T any]()` - 注册配置结构体类型

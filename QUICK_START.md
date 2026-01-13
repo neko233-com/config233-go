@@ -143,8 +143,24 @@ func (c *MyKvConfig) GetValue() string {
 // 注册类型
 config233.RegisterType[MyKvConfig]()
 
-// 从 KV 配置获取字符串列表（按逗号分隔）
-list := config233.GetKvStringList[MyKvConfig]("list1", []string{"default"})
+// 从 KV 配置获取字符串值
+str := config233.GetKvToString[MyKvConfig]("key1", "default")
+// 如果配置值为 "hello"，返回 "hello"
+// 如果配置不存在或为空，返回默认值 "default"
+
+// 从 KV 配置获取整数值
+num := config233.GetKvToInt[MyKvConfig]("key2", 0)
+// 如果配置值为 "123"，返回 123
+// 如果配置不存在或值无效，返回默认值 0
+
+// 从 KV 配置获取布尔值
+flag := config233.GetKvToBoolean[MyKvConfig]("key3", false)
+// 如果配置值为 "true"/"1"/"yes"/"on"，返回 true
+// 如果配置值为 "false"/"0"/"no"/"off"，返回 false
+// 如果配置不存在或值无效，返回默认值 false
+
+// 从 KV 配置获取 CSV 字符串列表（按逗号分隔）
+list := config233.GetKvToCsvStringList[MyKvConfig]("list1", []string{"default"})
 // 如果配置值为 "a,b,c"，返回 ["a", "b", "c"]
 // 如果配置不存在或为空，返回默认值 ["default"]
 ```
@@ -239,7 +255,7 @@ A: 是的，当前版本要求所有配置文件在同一目录下。
 A: 使用 `GenerateStructFromExcel` 或 `GenerateStructsFromExcelDir` 函数，可以从 Excel 文件自动生成 Go 结构体代码。
 
 ### Q: KV 配置如何使用？
-A: 定义实现 `IKvConfig` 接口的结构体，使用 `GetKvStringList` 获取按逗号分隔的字符串列表。代码生成器会自动为 KV 配置生成接口实现。
+A: 定义实现 `IKvConfig` 接口的结构体，使用 `GetKvToString`、`GetKvToInt`、`GetKvToBoolean` 或 `GetKvToCsvStringList` 获取不同类型的值。代码生成器会自动为 KV 配置生成接口实现。
 
 ### Q: 为什么需要注册类型？
 A: 注册类型后，配置数据会自动转换为对应的结构体类型，而不是 `map[string]interface{}`，提供类型安全和更好的 IDE 支持。

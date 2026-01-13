@@ -145,8 +145,17 @@ config233.RegisterType[TestKvConfig]()
 manager := config233.NewConfigManager233("./config")
 manager.LoadAllConfigs()
 
-// 获取字符串列表（按逗号分隔）
-list := config233.GetKvStringList[TestKvConfig]("list1", []string{"default"})
+// 获取字符串值
+str := config233.GetKvToString[TestKvConfig]("key1", "default")
+
+// 获取整数值
+num := config233.GetKvToInt[TestKvConfig]("key2", 0)
+
+// 获取布尔值
+flag := config233.GetKvToBoolean[TestKvConfig]("key3", false)
+
+// 获取 CSV 字符串列表（按逗号分隔）
+list := config233.GetKvToCsvStringList[TestKvConfig]("list1", []string{"default"})
 // 如果配置值为 "a,b,c"，返回 ["a", "b", "c"]
 // 如果配置不存在或为空，返回默认值
 ```
