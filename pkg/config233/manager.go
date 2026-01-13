@@ -145,7 +145,20 @@ func (cm *ConfigManager233) Start() (*ConfigManager233, error) {
 // Deprecated: 使用 GetInstance().SetConfigDir(configDir) 代替
 func NewConfigManager233(configDir string) *ConfigManager233 {
 	manager := GetInstance()
-	manager.SetConfigDir(configDir)
+	// 如果未启动，清空之前的配置（用于测试场景）
+	if !manager.started.Load() {
+		manager.mutex.Lock()
+		manager.configs = make(map[string]interface{})
+		manager.configMaps = make(map[string]map[string]interface{})
+		manager.configDir = configDir
+		// 清空缓存
+		manager.globalIdMaps.Store(&map[string]map[string]interface{}{})
+		manager.globalSlices.Store(&map[string][]interface{}{})
+		manager.mutex.Unlock()
+	} else {
+		// 如果已启动，只更新配置目录（会返回错误，但保持向后兼容）
+		manager.SetConfigDir(configDir)
+	}
 	return manager
 }
 
