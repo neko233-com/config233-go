@@ -7,12 +7,23 @@ import (
 	"github.com/neko233-com/config233-go/pkg/config233"
 )
 
+// StudentConfig 示例配置结构体
+type StudentConfig struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Age  int    `json:"age"`
+}
+
 func main() {
 	fmt.Println("ConfigManager233 示例")
 
 	// 使用全局实例
 	fmt.Println("=== 使用全局实例 ===")
-	config, exists := config233.Instance.GetConfig("StudentConfig", "1")
+	// 注册配置类型
+	config233.RegisterType[StudentConfig]()
+
+	// 使用泛型方法获取配置
+	config, exists := config233.GetConfigById[StudentConfig](1)
 	if exists {
 		fmt.Printf("找到配置: %+v\n", config)
 	} else {

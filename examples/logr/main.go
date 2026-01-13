@@ -36,12 +36,22 @@ func (l *stdLogger) WithName(name string) logr.LogSink {
 	return l // 简化实现
 }
 
+// Student 示例配置结构体
+type Student struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+	Age  int    `json:"age"`
+}
+
 func main() {
 	fmt.Println("Config233-Go logr 日志接口示例")
 
+	// 注册配置类型
+	config233.RegisterType[Student]()
+
 	// 示例1: 使用默认日志（静默模式，不输出日志）
 	fmt.Println("=== 使用默认日志（静默模式） ===")
-	config, exists := config233.Instance.GetConfig("Student", "1")
+	config, exists := config233.GetConfigById[Student](1)
 	if exists {
 		fmt.Printf("找到配置: %+v\n", config)
 	} else {
@@ -54,7 +64,7 @@ func main() {
 	config233.SetLogger(logger)
 
 	// 现在日志调用会输出到控制台
-	config, exists = config233.Instance.GetConfig("Student", "1")
+	config, exists = config233.GetConfigById[Student](1)
 	if exists {
 		fmt.Printf("找到配置: %+v\n", config)
 	} else {

@@ -37,6 +37,30 @@ func TestConfigManager233_GetConfigById(t *testing.T) {
 
 // TestConfigManager233_LoadAllConfigs 测试配置管理器的 LoadAllConfigs 方法
 // 验证配置管理器是否能正确加载目录中的所有配置文件
+func TestConfigManager233_GetAllConfigData(t *testing.T) {
+	testDir := getTestDataDir()
+	manager := config233.NewConfigManager233(testDir)
+
+	err := manager.LoadAllConfigs()
+	if err != nil {
+		t.Logf("加载配置失败（可能是正常的）: %v", err)
+		// 不直接失败，因为测试数据可能不完整
+	}
+
+	// 检查是否加载了配置
+	loadedConfigs := manager.GetLoadedConfigNames()
+	if len(loadedConfigs) == 0 {
+		t.Log("没有加载到配置，这可能是因为处理器还未完全实现")
+	} else {
+		t.Logf("加载了 %d 个配置", len(loadedConfigs))
+		for _, name := range loadedConfigs {
+			t.Logf("配置名: %s", name)
+		}
+	}
+}
+
+// TestConfigManager233_LoadAllConfigs 测试配置管理器的 LoadAllConfigs 方法
+// 验证配置管理器是否能正确加载目录中的所有配置文件
 func TestConfigManager233_LoadAllConfigs(t *testing.T) {
 	testDir := getTestDataDir()
 	manager := config233.NewConfigManager233(testDir)
