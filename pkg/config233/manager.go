@@ -713,6 +713,91 @@ func GetConfigList[T any]() []*T {
 	return result
 }
 
+// GetAllConfigList 获取某类型的所有配置列表（GetConfigList 的别名）
+// 返回 []*T，相当于 map.values() 转 slice
+func GetAllConfigList[T any]() []*T {
+	return GetConfigList[T]()
+}
+
+// GetConfigMap 获取某类型的配置映射（纯泛型）
+// 返回 map[string]*T，其中 key 是配置的 ID
+func GetConfigMap[T any]() map[string]*T {
+	cm := GetInstance()
+	configName := typeNameOf[T]()
+
+	// Lock-Free
+	idMapsPtr := cm.globalIdMaps.Load().(*map[string]map[string]interface{})
+	idMaps := *idMapsPtr
+	idMap, exists := idMaps[configName]
+
+	if !exists {
+		return nil
+	}
+
+	result := make(map[string]*T, len(idMap))
+	for id, item := range idMap {
+		// 尝试直接类型断言
+		if typedItem, ok := item.(*T); ok {
+			result[id] = typedItem
+		} else if mapItem, ok := item.(map[string]interface{}); ok {
+			// 如果是 map，尝试转换为 T
+			if converted, err := convertMapToStruct[T](mapItem); err == nil {
+				result[id] = converted
+			}
+		}
+	}
+
+	return result
+}
+
+// GetKvStringList 从 KV 配置中获取字符串列表
+// 参数:
+//
+//	id: 配置项的 ID
+//	defaultVal: 如果配置不存在或值为空时的默认值
+//
+// 返回值:
+//
+//	[]string: 解析后的字符串列表（按逗号分隔）
+func GetKvStringList[T IKvConfig](id string, defaultVal []string) []string {
+	cm := GetInstance()
+	configName := typeNameOf[T]()
+
+	// 获取配置项
+	config, exists := getConfigByIdWithNameForManager[T](cm, configName, id)
+	if !exists {
+		return defaultVal
+	}
+
+	// 使用类型断言将 *T 转换为 IKvConfig 接口
+	kvConfig, ok := any(config).(IKvConfig)
+	if !ok {
+		return defaultVal
+	}
+
+	// 调用 GetValue 方法获取值
+	value := kvConfig.GetValue()
+	if value == "" {
+		return defaultVal
+	}
+
+	// 按逗号分割并去除空格
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+
+	if len(result) == 0 {
+		return defaultVal
+	}
+
+	return result
+}
+
 // Reload 热重载所有配置
 // 重新从配置目录加载所有配置文件，并执行所有注册的重载回调函数
 // 通常在检测到配置文件变化时自动调用，也可手动触发
