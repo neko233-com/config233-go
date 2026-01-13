@@ -47,49 +47,105 @@ type ConfigManager233 struct {
 	globalSlices     atomic.Value                      // 缓存 slice []interface{} (存储 *map[string][]interface{})
 	registeredTypes  map[string]reflect.Type           // 已注册的类型
 	registerTypeMu   sync.RWMutex                      // 保护 registeredTypes
+	started          atomic.Bool                       // 是否已启动，启动后不允许修改配置目录
 }
 
-// Instance 全局配置管理器实例
+var (
+	instance     *ConfigManager233
+	instanceOnce sync.Once
+)
+
+// GetInstance 获取全局单例配置管理器实例
+// 首次调用时会创建实例，后续调用返回同一个实例
+// 返回值:
+//
+//	*ConfigManager233: 全局单例配置管理器实例
+func GetInstance() *ConfigManager233 {
+	instanceOnce.Do(func() {
+		// 默认配置目录，可以通过环境变量或 SetConfigDir 覆盖
+		configDir := os.Getenv("CONFIG233_DIR")
+		if configDir == "" {
+			configDir = "config"
+		}
+		instance = &ConfigManager233{
+			configs:          make(map[string]interface{}),
+			configMaps:       make(map[string]map[string]interface{}),
+			configDir:        configDir,
+			reloadFuncs:      make([]func(), 0),
+			businessManagers: make([]IBusinessConfigManager, 0),
+			watcher:          nil,
+			registeredTypes:  make(map[string]reflect.Type),
+		}
+
+		// 初始化 atomic.Value
+		instance.globalIdMaps.Store(&map[string]map[string]interface{}{})
+		instance.globalSlices.Store(&map[string][]interface{}{})
+	})
+	return instance
+}
+
+// Instance 全局配置管理器实例（已废弃，请使用 GetInstance()）
 // 提供单例模式的全局配置管理器，方便快速访问
 var Instance *ConfigManager233
 
-// init 初始化全局配置管理器
-// 在包初始化时创建全局配置管理器实例
-// 配置目录优先从环境变量 CONFIG233_DIR 获取，默认为 "config"
+// init 初始化全局配置管理器（向后兼容）
 func init() {
-	// 默认配置目录，可以通过环境变量或参数覆盖
-	configDir := os.Getenv("CONFIG233_DIR")
-	if configDir == "" {
-		configDir = "config"
-	}
-	Instance = NewConfigManager233(configDir)
-	// 不在此自动加载，避免初始化顺序问���
+	Instance = GetInstance()
 }
 
-// NewConfigManager233 创建新的配置管理器
-// 初始化配置管理器实例，设置配置目录
+// SetConfigDir 设置配置目录路径（链式调用）
+// 只能在启动前调用，启动后调用会返回错误
 // 参数:
 //
 //	configDir: 配置文件的目录路径
 //
 // 返回值:
 //
-//	*ConfigManager233: 新创建的配置管理器实例
-func NewConfigManager233(configDir string) *ConfigManager233 {
-	manager := &ConfigManager233{
-		configs:          make(map[string]interface{}),
-		configMaps:       make(map[string]map[string]interface{}),
-		configDir:        configDir,
-		reloadFuncs:      make([]func(), 0),
-		businessManagers: make([]IBusinessConfigManager, 0),
-		watcher:          nil,
-		registeredTypes:  make(map[string]reflect.Type),
+//	*ConfigManager233: 返回自身，支持链式调用
+//	error: 如果已启动则返回错误
+func (cm *ConfigManager233) SetConfigDir(configDir string) (*ConfigManager233, error) {
+	if cm.started.Load() {
+		return cm, fmt.Errorf("配置管理器已启动，不允许修改配置目录")
+	}
+	cm.mutex.Lock()
+	defer cm.mutex.Unlock()
+	cm.configDir = configDir
+	return cm, nil
+}
+
+// Start 启动配置管理器（链式调用）
+// 加载所有配置并启动文件监听，启动后不允许修改配置目录
+// 返回值:
+//
+//	*ConfigManager233: 返回自身，支持链式调用
+//	error: 启动过程中的错误
+func (cm *ConfigManager233) Start() (*ConfigManager233, error) {
+	if cm.started.Load() {
+		return cm, nil // 已经启动，直接返回
 	}
 
-	// 初始化 atomic.Value
-	manager.globalIdMaps.Store(&map[string]map[string]interface{}{})
-	manager.globalSlices.Store(&map[string][]interface{}{})
+	// 加载所有配置
+	if err := cm.LoadAllConfigs(); err != nil {
+		return cm, fmt.Errorf("加载配置失败: %w", err)
+	}
 
+	// 启动文件监听
+	if err := cm.StartWatching(); err != nil {
+		return cm, fmt.Errorf("启动文件监听失败: %w", err)
+	}
+
+	// 标记为已启动
+	cm.started.Store(true)
+
+	return cm, nil
+}
+
+// NewConfigManager233 已废弃：请使用 GetInstance().SetConfigDir().Start() 代替
+// 为了向后兼容保留此函数，但建议使用新的单例模式
+// Deprecated: 使用 GetInstance().SetConfigDir(configDir) 代替
+func NewConfigManager233(configDir string) *ConfigManager233 {
+	manager := GetInstance()
+	manager.SetConfigDir(configDir)
 	return manager
 }
 
@@ -118,12 +174,12 @@ func (cm *ConfigManager233) RegisterType(typ reflect.Type) {
 // 这个函数应该在加载配置之前调用
 func RegisterType[T any]() {
 	var example T
-	Instance.RegisterType(reflect.TypeOf(example))
+	GetInstance().RegisterType(reflect.TypeOf(example))
 }
 
 // RegisterTypeByReflect 传入 reflect.Type 来注册
 func RegisterTypeByReflect(typ reflect.Type) {
-	Instance.RegisterType(typ)
+	GetInstance().RegisterType(typ)
 }
 
 // getRegisteredType 获取已注册的类型
@@ -491,15 +547,9 @@ func (cm *ConfigManager233) idToString(id interface{}) (string, bool) {
 	}
 }
 
-// GetConfigById 根据 ID 获取单个配置（O(1) 查找）
-// 自动根据类型名推断 configName
-// ID 支持 string | int | int64 类型
+// GetConfigById 根据 ID 获取单个配置（O(1) 查找）- 指定管理器
 func GetConfigById[T any](id interface{}) (*T, bool) {
-	return GetConfigByIdForManager[T](Instance, id)
-}
-
-// GetConfigByIdForManager 根据 ID 获取单个配置（O(1) 查找）- 指定管理器
-func GetConfigByIdForManager[T any](cm *ConfigManager233, id interface{}) (*T, bool) {
+	cm := GetInstance()
 	configName := typeNameOf[T]()
 	return getConfigByIdWithNameForManager[T](cm, configName, id)
 }
@@ -640,20 +690,10 @@ func convertSliceToStructSlice[T any](data []interface{}) ([]*T, error) {
 	return result, nil
 }
 
-// GetAllConfigList 获取某类型的所有配置列表（纯泛型）
+// GetConfigList 获取某类型的所有配置列表（纯泛型）- 指定管理器
 // 返回 []*T，相当于 map.values() 转 slice
-func GetAllConfigList[T any]() []*T {
-	return GetAllConfigListForManager[T](Instance)
-}
-
-// GetConfigList 获取某类型的所有配置列表（别名，更短）
 func GetConfigList[T any]() []*T {
-	return GetAllConfigListForManager[T](Instance)
-}
-
-// GetAllConfigListForManager 获取某类型的所有配置列表（纯泛型）- 指定管理器
-// 返回 []*T，相当于 map.values() 转 slice
-func GetAllConfigListForManager[T any](cm *ConfigManager233) []*T {
+	cm := GetInstance()
 	configName := typeNameOf[T]()
 
 	// Lock-Free
@@ -671,119 +711,6 @@ func GetAllConfigListForManager[T any](cm *ConfigManager233) []*T {
 	}
 
 	return result
-}
-
-// =====================================================
-// KvConfig 快捷方法（一行搞定）
-// =====================================================
-
-// GetKvInt 从 KvConfig 类型配置中获取 int 值
-func GetKvInt[T IKvConfig](id interface{}, defaultVal int) int {
-	cfg, _ := GetConfigById[T](id)
-	if cfg == nil {
-		return defaultVal
-	}
-	result, err := strconv.Atoi((*cfg).GetValue())
-	if err != nil {
-		getLogger().Error(err, "GetKvInt 解析失败", "id", id, "value", (*cfg).GetValue())
-		return defaultVal
-	}
-	return result
-}
-
-// GetKvString 从 KvConfig 类型配置中获取 string 值
-func GetKvString[T IKvConfig](id interface{}, defaultVal string) string {
-	cfg, _ := GetConfigById[T](id)
-	if cfg == nil {
-		return defaultVal
-	}
-	return (*cfg).GetValue()
-}
-
-// GetKvFloat 从 KvConfig 类型配置中获取 float64 值
-func GetKvFloat[T IKvConfig](id interface{}, defaultVal float64) float64 {
-	cfg, _ := GetConfigById[T](id)
-	if cfg == nil {
-		return defaultVal
-	}
-	result, err := strconv.ParseFloat((*cfg).GetValue(), 64)
-	if err != nil {
-		getLogger().Error(err, "GetKvFloat 解析失败", "id", id, "value", (*cfg).GetValue())
-		return defaultVal
-	}
-	return result
-}
-
-// GetKvBool 从 KvConfig 类型配置中获取 bool 值
-func GetKvBool[T IKvConfig](id interface{}, defaultVal bool) bool {
-	cfg, _ := GetConfigById[T](id)
-	if cfg == nil {
-		return defaultVal
-	}
-	s := strings.ToLower((*cfg).GetValue())
-	return s == "true" || s == "1" || s == "yes"
-}
-
-// GetKvIntList 从 KvConfig 类型配置中获取 []int 值（逗号分隔）
-func GetKvIntList[T IKvConfig](id interface{}, defaultVal []int) []int {
-	cfg, _ := GetConfigById[T](id)
-	if cfg == nil {
-		return defaultVal
-	}
-	str := (*cfg).GetValue()
-	if str == "" {
-		return defaultVal
-	}
-	parts := strings.Split(str, ",")
-	result := make([]int, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if v, err := strconv.Atoi(p); err == nil {
-			result = append(result, v)
-		}
-	}
-	if len(result) == 0 {
-		return defaultVal
-	}
-	return result
-}
-
-// GetKvStringList 从 KvConfig 类型配置中获取 []string 值（逗号分隔）
-func GetKvStringList[T IKvConfig](id interface{}, defaultVal []string) []string {
-	cfg, _ := GetConfigById[T](id)
-	if cfg == nil {
-		return defaultVal
-	}
-	str := (*cfg).GetValue()
-	if str == "" {
-		return defaultVal
-	}
-	parts := strings.Split(str, ",")
-	result := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" { // 可选：是否过滤空字符串？通常 Kv 配置不应该有空的部分，或者空部分被忽略
-			result = append(result, p)
-		}
-	}
-	if len(result) == 0 {
-		return defaultVal
-	}
-	return result
-}
-
-// =====================================================
-// 调试方法
-// =====================================================
-
-// PrintLoadedConfigs 打印已加载的配置
-func PrintLoadedConfigs() {
-	names := Instance.GetLoadedConfigNames()
-	fmt.Printf("已加载配置列表 (%d):\n", len(names))
-	for _, name := range names {
-		count := Instance.GetConfigCount(name)
-		fmt.Printf("  - %s: %d 条\n", name, count)
-	}
 }
 
 // Reload 热重载所有配置
@@ -997,16 +924,6 @@ func (cm *ConfigManager233) getConfig(configName string, id interface{}) (interf
 
 // buildGlobalCaches 已移除 - 索引现在在加载时自动构建（通过 setConfigCache）
 
-// GlobalIdMapsLoad 导出全局 ID 映射缓存，用于调试
-func GlobalIdMapsLoad() interface{} {
-	return Instance.globalIdMaps.Load()
-}
-
-// GlobalSlicesLoad 导出全局切片缓存，用于调试
-func GlobalSlicesLoad() interface{} {
-	return Instance.globalSlices.Load()
-}
-
 // setConfigCache 更新单个配置的全局缓存 - 完全无锁
 func (cm *ConfigManager233) setConfigCache(configName string, idMap map[string]interface{}, slice []interface{}) {
 	// 转换为注册的结构体类型
@@ -1085,33 +1002,4 @@ func (cm *ConfigManager233) getConfigMap(configName string) (map[string]interfac
 	idMaps := *idMapsPtr
 	idMap, exists := idMaps[configName]
 	return idMap, exists
-}
-
-// GetConfigMap 获取某类型的 ID -> 配置 Map（纯泛型）
-func GetConfigMap[T any]() map[string]*T {
-	var zero T
-	configName := reflect.TypeOf(zero).Name()
-	if reflect.TypeOf(zero).Kind() == reflect.Ptr {
-		configName = reflect.TypeOf(zero).Elem().Name()
-	}
-
-	idMapsPtr := Instance.globalIdMaps.Load().(*map[string]map[string]interface{})
-	idMaps := *idMapsPtr
-	idMap, exists := idMaps[configName]
-	if !exists {
-		return nil
-	}
-
-	result := make(map[string]*T, len(idMap))
-	for id, value := range idMap {
-		if typedValue, ok := value.(*T); ok {
-			result[id] = typedValue
-		} else if mapValue, ok := value.(map[string]interface{}); ok {
-			// 如果缓存中还是 map，尝试转换（索引在加载时自动构建）
-			if converted, err := convertMapToStruct[T](mapValue); err == nil {
-				result[id] = converted
-			}
-		}
-	}
-	return result
 }
