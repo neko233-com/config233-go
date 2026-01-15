@@ -573,19 +573,22 @@ func getConfigByIdWithNameForManager[T any](cm *ConfigManager233, configName str
 	if !ok {
 		return nil, false
 	}
+
+	// 获取 T 的类型信息，检查是否是接口类型
+	var zero T
+	tType := reflect.TypeOf(zero)
+	isInterface := tType != nil && tType.Kind() == reflect.Interface
+
 	// 优先从缓存获取 (Lock-Free)
 	idMapsPtr := cm.globalIdMaps.Load().(*map[string]map[string]interface{})
-
 	idMaps := *idMapsPtr
-	if idMap, exists := idMaps[configName]; exists {
-		if item, ok := idMap[idStr]; ok {
-			// 尝试直接类型断言
-			if result, ok := item.(*T); ok {
-				return result, true
-			}
-			// 如果是 map，尝试转换为 T
-			if mapItem, ok := item.(map[string]interface{}); ok {
-				if result, err := convertMapToStruct[T](mapItem); err == nil {
+
+	// 如果 T 是接口类型，需要遍历所有配置查找实现了接口的配置
+	if isInterface {
+		for _, idMap := range idMaps {
+			if item, ok := idMap[idStr]; ok {
+				// 尝试转换为 *T
+				if result := convertToType[T](item); result != nil {
 					return result, true
 				}
 			}
@@ -593,25 +596,105 @@ func getConfigByIdWithNameForManager[T any](cm *ConfigManager233, configName str
 		return nil, false
 	}
 
+	// T 是具体类型，直接通过配置名查找
+	if idMap, exists := idMaps[configName]; exists {
+		if item, ok := idMap[idStr]; ok {
+			// 尝试转换为 *T
+			if result := convertToType[T](item); result != nil {
+				return result, true
+			}
+		}
+		return nil, false
+	}
+
 	// 缓存未命中，从实例获取 (Need Lock)
+	// 如果 T 是接口类型，需要遍历所有配置
+	if isInterface {
+		cm.mutex.RLock()
+		defer cm.mutex.RUnlock()
+
+		for _, configMap := range cm.configMaps {
+			if data, ok := configMap[idStr]; ok {
+				if result := convertToType[T](data); result != nil {
+					return result, true
+				}
+			}
+		}
+		return nil, false
+	}
+
+	// T 是具体类型，直接通过配置名查找
 	data, ok := cm.getConfig(configName, configId)
 	if !ok {
 		return nil, false
 	}
 
-	// 尝试直接类型断言
-	if result, ok := data.(*T); ok {
+	// 尝试转换为 *T
+	if result := convertToType[T](data); result != nil {
 		return result, true
 	}
 
-	// 如果是 map，尝试转换为 T
+	return nil, false
+}
+
+// convertToType 将 interface{} 转换为 *T，支持接口类型和具体类型
+func convertToType[T any](data interface{}) *T {
+	// 如果 data 是 nil，直接返回
+	if data == nil {
+		return nil
+	}
+
+	// 首先尝试直接类型断言（适用于具体类型）
+	if result, ok := data.(*T); ok {
+		return result
+	}
+
+	// 获取 T 的类型信息
+	var zero T
+	tType := reflect.TypeOf(zero)
+
+	// 检查 T 是否是接口类型
+	if tType != nil && tType.Kind() == reflect.Interface {
+		// T 是接口类型（如 IKvConfig）
+		// 当 T 受接口约束时（如 T IKvConfig），实际调用时 T 是具体类型（如 FishingKvConfig）
+		// 但 reflect.TypeOf(zero) 会返回接口类型，而不是具体类型
+		// 我们需要检查 data 是否实现了接口，如果实现了，就返回它
+
+		// 如果 data 是指针类型
+		if val := reflect.ValueOf(data); val.Kind() == reflect.Ptr && !val.IsNil() {
+			elemType := val.Elem().Type()
+
+			// 检查元素类型是否实现了接口
+			if elemType.Implements(tType) {
+				// 元素实现了接口，data 是指向实现了接口的具体类型的指针
+				// 由于 T 受接口约束，实际调用时 T 是具体类型（如 FishingKvConfig）
+				// 我们需要将 *FishingKvConfig 转换为 *FishingKvConfig（通过 T）
+				// 但由于类型系统限制，我们需要使用反射
+				// 实际上，当 T 受接口约束时，T 在编译时是具体类型，所以类型断言应该能成功
+				// 但如果失败了，说明类型不匹配，我们需要通过反射来检查
+				// 尝试通过 any 类型断言
+				if result, ok := any(data).(*T); ok {
+					return result
+				}
+				// 如果类型断言失败，可能是因为类型系统无法识别
+				// 我们尝试使用反射来构造
+				// 但由于 *T 在 Go 中不合法（如果 T 是接口），我们需要特殊处理
+				// 实际上，当 T 受接口约束时，T 应该是具体类型，所以这里应该不会到达
+				// 但如果到达了，说明类型系统有问题
+			}
+		}
+
+		return nil
+	}
+
+	// T 是具体类型，如果是 map，尝试转换为 T
 	if mapData, ok := data.(map[string]interface{}); ok {
 		if result, err := convertMapToStruct[T](mapData); err == nil {
-			return result, true
+			return result
 		}
 	}
 
-	return nil, false
+	return nil
 }
 
 // typeNameOf 获取类型名称，指针时取元素名
@@ -757,6 +840,22 @@ func GetConfigMap[T any]() map[string]*T {
 	return result
 }
 
+// getKvConfigInternal 获取 KV 配置对应的泛型配置对象
+// 对于未找到的配置，会打错误日志
+func getKvConfigInternal[T any](id string) (*T, bool) {
+	cm := GetInstance()
+	configName := typeNameOf[T]()
+
+	// 获取配置项
+	config, exists := getConfigByIdWithNameForManager[T](cm, configName, id)
+	if !exists {
+		// KV 配置未找到时打错误日志，方便排查
+		getLogger().Error(nil, "KV 配置未找到", "configName", configName, "id", id)
+		return nil, false
+	}
+	return config, true
+}
+
 // GetKvToString 从 KV 配置中获取字符串值
 // 参数:
 //
@@ -766,12 +865,11 @@ func GetConfigMap[T any]() map[string]*T {
 // 返回值:
 //
 //	string: 配置的字符串值
-func GetKvToString[T IKvConfig](id string, defaultVal string) string {
-	cm := GetInstance()
-	configName := typeNameOf[T]()
-
+//
+// 注意: 这里的 T 不再受 IKvConfig 约束，实际约束由运行时的类型断言保证（*T 或 T 需要实现 IKvConfig）
+func GetKvToString[T any](id string, defaultVal string) string {
 	// 获取配置项
-	config, exists := getConfigByIdWithNameForManager[T](cm, configName, id)
+	config, exists := getKvConfigInternal[T](id)
 	if !exists {
 		return defaultVal
 	}
@@ -800,12 +898,11 @@ func GetKvToString[T IKvConfig](id string, defaultVal string) string {
 // 返回值:
 //
 //	int: 配置的整数值
-func GetKvToInt[T IKvConfig](id string, defaultVal int) int {
-	cm := GetInstance()
-	configName := typeNameOf[T]()
-
+//
+// 注意: 这里的 T 不再受 IKvConfig 约束，实际约束由运行时的类型断言保证（*T 或 T 需要实现 IKvConfig）
+func GetKvToInt[T any](id string, defaultVal int) int {
 	// 获取配置项
-	config, exists := getConfigByIdWithNameForManager[T](cm, configName, id)
+	config, exists := getKvConfigInternal[T](id)
 	if !exists {
 		return defaultVal
 	}
@@ -839,12 +936,11 @@ func GetKvToInt[T IKvConfig](id string, defaultVal int) int {
 // 返回值:
 //
 //	bool: 配置的布尔值
-func GetKvToBoolean[T IKvConfig](id string, defaultVal bool) bool {
-	cm := GetInstance()
-	configName := typeNameOf[T]()
-
+//
+// 注意: 这里的 T 不再受 IKvConfig 约束，实际约束由运行时的类型断言保证（*T 或 T 需要实现 IKvConfig）
+func GetKvToBoolean[T any](id string, defaultVal bool) bool {
 	// 获取配置项
-	config, exists := getConfigByIdWithNameForManager[T](cm, configName, id)
+	config, exists := getKvConfigInternal[T](id)
 	if !exists {
 		return defaultVal
 	}
@@ -886,12 +982,11 @@ func GetKvToBoolean[T IKvConfig](id string, defaultVal bool) bool {
 // 返回值:
 //
 //	[]string: 解析后的字符串列表（按逗号分隔）
-func GetKvToCsvStringList[T IKvConfig](id string, defaultVal []string) []string {
-	cm := GetInstance()
-	configName := typeNameOf[T]()
-
+//
+// 注意: 这里的 T 不再受 IKvConfig 约束，实际约束由运行时的类型断言保证（*T 或 T 需要实现 IKvConfig）
+func GetKvToCsvStringList[T any](id string, defaultVal []string) []string {
 	// 获取配置项
-	config, exists := getConfigByIdWithNameForManager[T](cm, configName, id)
+	config, exists := getKvConfigInternal[T](id)
 	if !exists {
 		return defaultVal
 	}
