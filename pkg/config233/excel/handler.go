@@ -164,6 +164,35 @@ func (h *ExcelConfigHandler) ReadConfigAndORM(typ reflect.Type, configName, conf
 	headers := rows[serverRowIndex]
 	var result []interface{}
 
+	// 构建 header 名称到 struct 字段名的映射，使用灵活匹配策略
+	headerToField := make(map[string]string)
+	for _, hdr := range headers {
+		h := strings.TrimSpace(hdr)
+		if h == "" {
+			continue
+		}
+		// 在 struct 字段中查找与 header 匹配的字段名或 tag（不区分大小写）
+		// 优先匹配 `config233_column` 标签，如果没有标签则使用字段名或首字母小写的字段名
+		for i := 0; i < typ.NumField(); i++ {
+			f := typ.Field(i)
+			// 候选名称：config233_column 标签��字段名
+			columnTag := f.Tag.Get("config233_column")
+			fieldName := f.Name
+
+			// 优先使用 config233_column 标签
+			if columnTag != "" && strings.EqualFold(columnTag, h) {
+				headerToField[h] = fieldName
+				break
+			}
+
+			// 如果没有 config233_column 标签，则使用字段名匹配（不区分大小写）
+			if columnTag == "" && (strings.EqualFold(fieldName, h) || strings.EqualFold(lowerFirst(fieldName), h)) {
+				headerToField[h] = fieldName
+				break
+			}
+		}
+	}
+
 	// 从数据行开始读取
 	for _, row := range rows[dataStartIndex:] {
 		obj := reflect.New(typ).Elem()
@@ -174,11 +203,18 @@ func (h *ExcelConfigHandler) ReadConfigAndORM(typ reflect.Type, configName, conf
 				continue
 			}
 
-			fieldName := headers[i]
-			if fieldName == "" {
+			header := strings.TrimSpace(headers[i])
+			if header == "" {
 				continue
 			}
-			field := obj.FieldByName(fieldName)
+
+			goFieldName, ok := headerToField[header]
+			if !ok {
+				// 没有映射到 struct 字段，跳过
+				continue
+			}
+
+			field := obj.FieldByName(goFieldName)
 			if !field.IsValid() || !field.CanSet() {
 				continue
 			}
@@ -190,6 +226,15 @@ func (h *ExcelConfigHandler) ReadConfigAndORM(typ reflect.Type, configName, conf
 	}
 
 	return result
+}
+
+// lowerFirst 将字符串首字母转为小写（用于将 Go 字段名如 "Id" 对应到 header 的 "id"）
+func lowerFirst(s string) string {
+	// 将首字母小写（用于将 Go 字段名如 "Id" 对应到 header 的 "id"）
+	if s == "" {
+		return s
+	}
+	return strings.ToLower(s[:1]) + s[1:]
 }
 
 // setFieldValue 设置字段值
