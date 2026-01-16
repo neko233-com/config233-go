@@ -1,6 +1,7 @@
 package excel
 
 import (
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -225,6 +226,25 @@ func (h *ExcelConfigHandler) ReadConfigAndORM(typ reflect.Type, configName, conf
 		result = append(result, obj.Interface())
 	}
 
+	// 配置加载完成后，执行生命周期方法
+	for i, item := range result {
+		// 获取指针实际类型，以便调用方法
+		itemPtr := reflect.ValueOf(item).Addr().Interface()
+
+		// 1. 调用 AfterLoad() 方法（如果实现了 IConfigLifecycle 接口）
+		if lifecycle, ok := itemPtr.(interface{ AfterLoad() }); ok {
+			lifecycle.AfterLoad()
+		}
+
+		// 2. 调用 Check() 方法（如果实现了 IConfigValidator 接口）
+		if validator, ok := itemPtr.(interface{ Check() error }); ok {
+			if err := validator.Check(); err != nil {
+				// 控制台红色输出校验错误
+				fmt.Printf("\033[31m[ERROR] 配置校验失败 [%s] index=%d: %v\033[0m\n", configName, i, err)
+			}
+		}
+	}
+
 	return result
 }
 
@@ -237,27 +257,72 @@ func lowerFirst(s string) string {
 	return strings.ToLower(s[:1]) + s[1:]
 }
 
-// setFieldValue 设置字段值
+// setFieldValue 设置字段值，自动转换 string 到目标类型
 func (h *ExcelConfigHandler) setFieldValue(field reflect.Value, value string) {
+	// 空字符串处理：对于数值类型设置为 0，字符串保持空，布尔���型为 false
+	if value == "" {
+		switch field.Kind() {
+		case reflect.String:
+			field.SetString("")
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			field.SetInt(0)
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			field.SetUint(0)
+		case reflect.Float32, reflect.Float64:
+			field.SetFloat(0)
+		case reflect.Bool:
+			field.SetBool(false)
+		}
+		return
+	}
+
 	switch field.Kind() {
 	case reflect.String:
 		field.SetString(value)
+
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		if intVal, err := strconv.ParseInt(value, 10, 64); err == nil {
-			field.SetInt(intVal)
+		intVal, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			fmt.Printf("\033[31m[ERROR] 字段类型转换失败: 无法将 '%s' 转换为 int, 错误: %v\033[0m\n", value, err)
+			return
 		}
+		field.SetInt(intVal)
+
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		if uintVal, err := strconv.ParseUint(value, 10, 64); err == nil {
-			field.SetUint(uintVal)
+		uintVal, err := strconv.ParseUint(value, 10, 64)
+		if err != nil {
+			fmt.Printf("\033[31m[ERROR] 字段类型转换失败: 无法将 '%s' 转换为 uint, 错误: %v\033[0m\n", value, err)
+			return
 		}
+		field.SetUint(uintVal)
+
 	case reflect.Float32, reflect.Float64:
-		if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
-			field.SetFloat(floatVal)
+		floatVal, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			fmt.Printf("\033[31m[ERROR] 字段类型转换失败: 无法将 '%s' 转换为 float, 错误: %v\033[0m\n", value, err)
+			return
 		}
+		field.SetFloat(floatVal)
+
 	case reflect.Bool:
-		if boolVal, err := strconv.ParseBool(value); err == nil {
-			field.SetBool(boolVal)
+		boolVal, err := strconv.ParseBool(value)
+		if err != nil {
+			// 尝试其他布尔值格式
+			lower := strings.ToLower(strings.TrimSpace(value))
+			switch lower {
+			case "true", "1", "yes", "on", "enabled":
+				field.SetBool(true)
+			case "false", "0", "no", "off", "disabled", "":
+				field.SetBool(false)
+			default:
+				fmt.Printf("\033[31m[ERROR] 字段类型转换失败: 无法将 '%s' 转换为 bool\033[0m\n", value)
+			}
+			return
 		}
+		field.SetBool(boolVal)
+
+	default:
+		fmt.Printf("\033[31m[ERROR] 不支持的字段类型: %v\033[0m\n", field.Kind())
 	}
 }
 

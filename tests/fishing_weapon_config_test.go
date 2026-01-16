@@ -16,7 +16,31 @@ import (
 type FishingWeaponConfig struct {
 	Id                  int `json:"id" config233_column:"id"`
 	SkillId             int `json:"skillId" config233_column:"skillId"`
-	UnlockCostGoldCount int `json:"unlockCostGoldCount" config233_column:"unlockCostGoldCount"`
+	UnlockCostGoldCount int `json:"unlockCostGoldCount" config233_column:"unlockCostGoldGoldCount"`
+}
+
+// AfterLoad 配置加载后调用
+// 可以在这里进行数据预处理、建立索引、缓存分组等
+func (c *FishingWeaponConfig) AfterLoad() {
+	// 示例：可以在这里进行数据预处理
+	// 如构建索引、缓存计算结果等
+}
+
+// Check 配置校验
+// 返回 nil 表示校验通过，否则返回错误信息
+func (c *FishingWeaponConfig) Check() error {
+	// 注意：根据测试数据，1001 的 UnlockCostGoldCount 为 0（默认武器免费）
+	// 所以这里不强制要求 > 0，只检查负数情况
+	if c.UnlockCostGoldCount < 0 {
+		return fmt.Errorf("FishingWeaponConfig.id=%d 解锁价格不能为负数: unlockCostGoldCount=%d", c.Id, c.UnlockCostGoldCount)
+	}
+
+	// 可以添加更多校验规则
+	if c.Id <= 0 {
+		return fmt.Errorf("FishingWeaponConfig.id=%d 必须大于0", c.Id)
+	}
+
+	return nil
 }
 
 // TestFishingWeaponConfig_Parse 测试 FishingWeaponConfig.xlsx 能正确加载并映射到结构体
@@ -133,6 +157,66 @@ func TestFishingWeaponConfig_Parse(t *testing.T) {
 			t.Logf("��始解析未包含 id=%d 的行，跳过基于原始值的断言", id)
 		}
 	}
+}
+
+// TestFishingWeaponConfig_Lifecycle 测试配置生命周期方法的调用
+func TestFishingWeaponConfig_Lifecycle(t *testing.T) {
+	testDir := getTestDataDir()
+
+	manager := config233.NewConfigManager233(testDir)
+	config233.Instance = manager
+
+	// 注册测试中的结构体类型
+	config233.RegisterType[FishingWeaponConfig]()
+
+	if err := manager.LoadAllConfigs(); err != nil {
+		t.Fatalf("加载配置失败: %v", err)
+	}
+
+	// 验证配置已加载
+	list := config233.GetConfigList[FishingWeaponConfig]()
+	if len(list) == 0 {
+		t.Fatal("配置列表为空")
+	}
+
+	t.Logf("成功加载 %d 个配置，生命周期方法已在加载过程中执行", len(list))
+
+	// 验证 Check 方法的校验逻辑
+	t.Run("验证Check校验逻辑", func(t *testing.T) {
+		// 测试正常配置
+		validConfig := &FishingWeaponConfig{
+			Id:                  1001,
+			SkillId:             10001,
+			UnlockCostGoldCount: 0, // 0 是允许的（免费武器）
+		}
+		if err := validConfig.Check(); err != nil {
+			t.Errorf("期望校验通过，但得到错误: %v", err)
+		}
+
+		// 测试负数价格
+		invalidConfig1 := &FishingWeaponConfig{
+			Id:                  1001,
+			SkillId:             10001,
+			UnlockCostGoldCount: -1, // 负数不允许
+		}
+		if err := invalidConfig1.Check(); err == nil {
+			t.Error("期望校验失败（负数价格），但校验通过了")
+		} else {
+			t.Logf("正确检测到负数价格错误: %v", err)
+		}
+
+		// 测试无效 ID
+		invalidConfig2 := &FishingWeaponConfig{
+			Id:                  0, // ID 必须 > 0
+			SkillId:             10001,
+			UnlockCostGoldCount: 100,
+		}
+		if err := invalidConfig2.Check(); err == nil {
+			t.Error("期望校验失败（无效ID），但校验通过了")
+		} else {
+			t.Logf("正确检测到无效ID错误: %v", err)
+		}
+	})
 }
 
 // idToString 将可能的 id 值转换为字符串
