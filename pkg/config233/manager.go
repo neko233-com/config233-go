@@ -12,10 +12,6 @@ import (
 	"sync/atomic"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/neko233-com/config233-go/pkg/config233/dto"
-	"github.com/neko233-com/config233-go/pkg/config233/excel"
-	jsonhandler "github.com/neko233-com/config233-go/pkg/config233/json"
-	"github.com/neko233-com/config233-go/pkg/config233/tsv"
 )
 
 // IKvConfig KvConfig接口，避免反射实现
@@ -25,11 +21,9 @@ type IKvConfig interface {
 
 // IBusinessConfigManager 业务配置管理器接口
 type IBusinessConfigManager interface {
-	// OnConfigLoadComplete 配置加载完成回调
-	OnConfigLoadComplete(configName string)
-
-	// OnConfigHotUpdate 配置热更新回调
-	OnConfigHotUpdate()
+	// OnConfigLoadComplete 配置加载完成回调（批量）
+	// changedConfigNameList: 发生变更的配置名称列表
+	OnConfigLoadComplete(changedConfigNameList []string)
 }
 
 // ConfigManager233 全新的配置管理器，支持热重载
@@ -257,18 +251,27 @@ func (cm *ConfigManager233) convertSliceToRegisteredStructSlice(configName strin
 	return result, nil
 }
 
-// LoadAllConfigs 从目录加载所有配置
+// LoadAllConfigs 从目录加载所有配置（并行加载以提升性能）
 // 遍历配置目录，自动识别并加载所有支持格式的配置文件
 // 支持的格式包括: Excel (.xlsx, .xls), JSON (.json), TSV (.tsv)
+//
+// 性能优化：使用并行加载大幅提升首次启动速度
+// - 文件扫描阶段：快速收集所有需要加载的配置文件
+// - 并行加载阶段：每个配置文件在独立 goroutine 中加载，充分利用多核 CPU
+// - 线程安全保证：使用细粒度锁保护共享数据结构，缓存使用无锁 CAS 更新
+//
 // 加载过程中出现的错误会被记录但不会中断整个加载过程
 // 返回值:
 //
 //	error: 加载过程中的错误，如果遍历目录失败则返回错误
 func (cm *ConfigManager233) LoadAllConfigs() error {
-	cm.mutex.Lock()
-	defer cm.mutex.Unlock()
+	// 首先收集所有需要加载的配置文件（不持有锁）
+	type configFile struct {
+		path string
+		ext  string
+	}
 
-	// 遍历配置目录
+	var filesToLoad []configFile
 	err := filepath.Walk(cm.configDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -287,256 +290,76 @@ func (cm *ConfigManager233) LoadAllConfigs() error {
 
 			ext := strings.ToLower(filepath.Ext(path))
 			switch ext {
-			case ".xlsx", ".xls":
-				if err := cm.loadExcelConfig(path); err != nil {
-					getLogger().Error(err, "加载Excel配置失败", "path", path)
-					return nil // 继续处理其他文件
-				}
-			case ".json":
-				if err := cm.loadJsonConfig(path); err != nil {
-					getLogger().Error(err, "加载JSON配置失败", "path", path)
-					return nil
-				}
-			case ".tsv":
-				if err := cm.loadTsvConfig(path); err != nil {
-					getLogger().Error(err, "加载TSV配置失败", "path", path)
-					return nil
-				}
+			case ".xlsx", ".xls", ".json", ".tsv":
+				filesToLoad = append(filesToLoad, configFile{path: path, ext: ext})
 			}
 		}
 
 		return nil
 	})
 
-	if err == nil {
-		// 加载完成后调用业务配置管理器的回调
-		for configName := range cm.configs {
-			for _, manager := range cm.businessManagers {
-				manager.OnConfigLoadComplete(configName)
-			}
-		}
-		// cm.buildGlobalCaches() // Removed: Incremental cache update handled in loadXxxConfig
+	if err != nil {
+		return err
 	}
 
-	return err
-}
+	// 并行加载所有配置文件
+	var wg sync.WaitGroup
+	loadErrors := make(chan error, len(filesToLoad))
 
-// loadExcelConfig 从Excel文件加载配置
-// 使用 Excel 处理器读取并解析 Excel 配置文件
-// 参数:
-//
-//	filePath: Excel 配置文件的路径
-//
-// 返回值:
-//
-//	error: 加载过程中的错误
-func (cm *ConfigManager233) loadExcelConfig(filePath string) error {
-	// 创建 Excel 处理器
-	handler := &excel.ExcelConfigHandler{}
+	for _, file := range filesToLoad {
+		wg.Add(1)
+		go func(f configFile) {
+			defer wg.Done()
 
-	// 获取文件名（不含扩展名）作为配置名
-	fileName := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
-
-	// 读取前端数据格式
-	dto := handler.ReadToFrontEndDataList(fileName, filePath).(*dto.FrontEndConfigDto)
-	if dto.DataList == nil {
-		return nil // 空文件，跳过
-	}
-
-	// 转换为配置映射
-	configMap := make(map[string]interface{})
-	for _, item := range dto.DataList {
-		// 优先使用 id/ID/Id 字段作为配置 ID
-		var id string
-		if idVal, ok := item["id"]; ok && idVal != "" {
-			id = fmt.Sprintf("%v", idVal)
-		} else if idVal, ok := item["ID"]; ok && idVal != "" {
-			id = fmt.Sprintf("%v", idVal)
-		} else if idVal, ok := item["Id"]; ok && idVal != "" {
-			id = fmt.Sprintf("%v", idVal)
-		} else if idVal, ok := item["itemId"]; ok && idVal != "" {
-			// 兼容 itemId 字段
-			id = fmt.Sprintf("%v", idVal)
-		}
-
-		if id != "" {
-			// 如果有注册的类型，转换为具体结构体
-			if converted, err := cm.convertMapToRegisteredStruct(fileName, item); err == nil {
-				configMap[id] = converted
-				getLogger().Info("成功转换配置项", "index", -1, "configName", fileName, "itemId", item["itemId"])
-			} else {
-				// 转换失败则使用原始 map
-				configMap[id] = item
-				getLogger().Error(err, "转换配置项失败", "index", -1, "configName", fileName, "data", item)
-			}
-		}
-	}
-
-	cm.configs[fileName] = dto.DataList
-	cm.configMaps[fileName] = configMap
-
-	// Convert to []interface{}
-	slice := make([]interface{}, len(dto.DataList))
-	for i, v := range dto.DataList {
-		// 尝试转换为注册的结构体类型
-		if converted, err := cm.convertMapToRegisteredStruct(fileName, v); err == nil {
-			slice[i] = converted
-			getLogger().Info("成功转换配置项", "index", i, "configName", fileName, "itemId", v["itemId"])
-		} else {
-			// 转换失败则使用原始 map
-			slice[i] = v
-			getLogger().Error(err, "转换配置项失败", "index", i, "configName", fileName, "data", v)
-		}
-	}
-	cm.setConfigCache(fileName, configMap, slice) // Update cache
-
-	return nil
-}
-
-// loadJsonConfig 从JSON文件加载配置
-// 使用 JSON 处理器读取并解析 JSON 配置文件
-// 参数:
-//
-//	filePath: JSON 配置文件的路径
-//
-// 返回值:
-//
-//	error: 加载过程中的错误
-func (cm *ConfigManager233) loadJsonConfig(filePath string) error {
-	// 创建 JSON 处理器
-	handler := &jsonhandler.JsonConfigHandler{}
-
-	// 获取文件名（不含扩展名）作为配置名
-	fileName := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
-
-	// 读取前端数据格式
-	dto := handler.ReadToFrontEndDataList(fileName, filePath).(*dto.FrontEndConfigDto)
-	if dto.DataList == nil {
-		return nil // 空文件，跳过
-	}
-
-	// 转换为配置映射
-	configMap := make(map[string]interface{})
-	for _, item := range dto.DataList {
-		// 尝试从 map 中提取 ID（支持 "id", "ID", "Id" 等字段）
-		var id string
-		if idVal, ok := item["id"]; ok {
-			if str, ok := idVal.(string); ok {
-				id = str
-			} else {
-				id = fmt.Sprintf("%v", idVal)
-			}
-		} else if idVal, ok := item["ID"]; ok {
-			if str, ok := idVal.(string); ok {
-				id = str
-			} else {
-				id = fmt.Sprintf("%v", idVal)
-			}
-		} else if idVal, ok := item["Id"]; ok {
-			if str, ok := idVal.(string); ok {
-				id = str
-			} else {
-				id = fmt.Sprintf("%v", idVal)
-			}
-		}
-
-		if id != "" {
-			// 如果有注册的类型，转换为具体结构体
-			if converted, err := cm.convertMapToRegisteredStruct(fileName, item); err == nil {
-				configMap[id] = converted
-			} else {
-				// 转换失败则使用原始 map
-				configMap[id] = item
-			}
-		}
-	}
-
-	cm.configs[fileName] = dto.DataList
-	cm.configMaps[fileName] = configMap
-
-	// Convert to []interface{}
-	slice := make([]interface{}, len(dto.DataList))
-	for i, v := range dto.DataList {
-		// 尝试转换为注册的结构体类型
-		if converted, err := cm.convertMapToRegisteredStruct(fileName, v); err == nil {
-			slice[i] = converted
-			getLogger().Info("成功转换JSON配置项", "index", i, "configName", fileName, "itemId", v["itemId"])
-		} else {
-			// 转换失败则使用原始 map
-			slice[i] = v
-			getLogger().Error(err, "转换JSON配置项失败", "index", i, "configName", fileName, "data", v)
-		}
-	}
-	cm.setConfigCache(fileName, configMap, slice) // Update cache
-
-	return nil
-}
-
-// loadTsvConfig 从TSV文件加载配置
-// 使用 TSV 处理器读取并解析 TSV 配置文件
-// 参数:
-//
-//	filePath: TSV 配置文件的路径
-//
-// 返回值:
-//
-//	error: 加载过程中的错误
-func (cm *ConfigManager233) loadTsvConfig(filePath string) error {
-	// 创建 TSV 处理器
-	handler := &tsv.TsvConfigHandler{}
-
-	// 获取文件名（不含扩展名）作为配置名
-	fileName := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
-
-	// 读取前端数据格式
-	dto := handler.ReadToFrontEndDataList(fileName, filePath).(*dto.FrontEndConfigDto)
-	if dto.DataList == nil {
-		return nil // 空文件，跳过
-	}
-
-	// 转换为配置映射
-	configMap := make(map[string]interface{})
-	for _, item := range dto.DataList {
-		// 使用第一列作为 ID（如果存在的话）
-		var id string
-		for _, v := range item {
-			if id == "" {
-				if str, ok := v.(string); ok {
-					id = str
-				} else {
-					id = fmt.Sprintf("%v", v)
+			var loadErr error
+			switch f.ext {
+			case ".xlsx", ".xls":
+				loadErr = cm.loadExcelConfigThreadSafe(f.path)
+				if loadErr != nil {
+					getLogger().Error(loadErr, "加载Excel配置失败", "path", f.path)
+				}
+			case ".json":
+				loadErr = cm.loadJsonConfigThreadSafe(f.path)
+				if loadErr != nil {
+					getLogger().Error(loadErr, "加载JSON配置失败", "path", f.path)
+				}
+			case ".tsv":
+				loadErr = cm.loadTsvConfigThreadSafe(f.path)
+				if loadErr != nil {
+					getLogger().Error(loadErr, "加载TSV配置失败", "path", f.path)
 				}
 			}
-			break
-		}
-		if id != "" {
-			// 如果有注册的类型，转换为具体结构体
-			if converted, err := cm.convertMapToRegisteredStruct(fileName, item); err == nil {
-				configMap[id] = converted
-			} else {
-				// 转换失败则使用原始 map
-				configMap[id] = item
+
+			if loadErr != nil {
+				select {
+				case loadErrors <- loadErr:
+				default:
+				}
 			}
-		}
+		}(file)
 	}
 
-	cm.configs[fileName] = dto.DataList
-	cm.configMaps[fileName] = configMap
+	// 等待所有加载完成
+	wg.Wait()
+	close(loadErrors)
 
-	// Convert to []interface{}
-	slice := make([]interface{}, len(dto.DataList))
-	for i, v := range dto.DataList {
-		// 尝试转换为注册的结构体类型
-		if converted, err := cm.convertMapToRegisteredStruct(fileName, v); err == nil {
-			slice[i] = converted
-			getLogger().Info("成功转换TSV配置项", "index", i, "configName", fileName, "itemId", v["itemId"])
-		} else {
-			// 转换失败则使用原始 map
-			slice[i] = v
-			getLogger().Error(err, "转换TSV配置项失败", "index", i, "configName", fileName, "data", v)
+	// 加载完成后调用业务配置管理器的回调（批量）
+	cm.mutex.RLock()
+	configNames := make([]string, 0, len(cm.configs))
+	for configName := range cm.configs {
+		configNames = append(configNames, configName)
+	}
+	cm.mutex.RUnlock()
+
+	// 批量通知所有业务管理器（每个管理器收到独立的切片副本，防止数据污染）
+	if len(configNames) > 0 {
+		for _, manager := range cm.businessManagers {
+			// 为每个管理器创建独立副本，防止某个管理器修改影响其他管理器
+			configNamesCopy := make([]string, len(configNames))
+			copy(configNamesCopy, configNames)
+			manager.OnConfigLoadComplete(configNamesCopy)
 		}
 	}
-	cm.setConfigCache(fileName, configMap, slice) // Update cache
 
 	return nil
 }
@@ -1030,7 +853,7 @@ func (cm *ConfigManager233) Reload() error {
 	cm.mutex.Lock()
 	defer cm.mutex.Unlock()
 
-	// 重新加载所有配置
+	// 重新加载所有配置（内部会调用 OnConfigLoadComplete 批量回调）
 	if err := cm.LoadAllConfigs(); err != nil {
 		return err
 	}
@@ -1038,11 +861,6 @@ func (cm *ConfigManager233) Reload() error {
 	// 调用所有重载回调
 	for _, fn := range cm.reloadFuncs {
 		fn()
-	}
-
-	// 调用业务配置管理器的热更新回调
-	for _, manager := range cm.businessManagers {
-		manager.OnConfigHotUpdate()
 	}
 
 	getLogger().Info("配置重载成功")
@@ -1106,70 +924,6 @@ func (cm *ConfigManager233) GetConfigCount(configName string) int {
 		return len(configMap)
 	}
 	return 0
-}
-
-// StartWatching 启动文件监听
-// 启动对配置目录的文件监听，当配置文件发生变化时自动重载配置
-// 返回值:
-//
-//	error: 启动监听过程中的错误
-func (cm *ConfigManager233) StartWatching() error {
-	if cm.watcher != nil {
-		getLogger().Info("文件监听已启动")
-		return nil
-	}
-
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return fmt.Errorf("创建文件监听器失败: %w", err)
-	}
-
-	err = watcher.Add(cm.configDir)
-	if err != nil {
-		watcher.Close()
-		return fmt.Errorf("添加监听目录失败: %w", err)
-	}
-
-	cm.watcher = watcher
-
-	go func() {
-		defer watcher.Close()
-		for {
-			select {
-			case event, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-				// 只处理写和创建事件
-				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
-					ext := strings.ToLower(filepath.Ext(event.Name))
-					if ext == ".json" || ext == ".xlsx" || ext == ".xls" || ext == ".tsv" {
-						// 检查是否是已加载的配置
-						configName := strings.TrimSuffix(filepath.Base(event.Name), filepath.Ext(event.Name))
-
-						cm.mutex.RLock()
-						_, exists := cm.configs[configName]
-						cm.mutex.RUnlock()
-
-						if exists {
-							getLogger().Info("检测到已加载配置变化", "file", event.Name)
-
-							// 重新加载配置
-							cm.Reload()
-						}
-					}
-				}
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-				getLogger().Error(err, "文件监听错误")
-			}
-		}
-	}()
-
-	getLogger().Info("文件监听已启动", "dir", cm.configDir)
-	return nil
 }
 
 // ConfigManagerReloadListener 配置管理器重载监听器

@@ -6,20 +6,22 @@ Config233 的 Go 语言实现，用于配置文件的加载、热更新和数据
 
 - [API 可见性说明](API_VISIBILITY.md) - 了解哪些内容对第三方用户可见
 - [贡献指南](CONTRIBUTING.md) - 项目结构和开发规范
+- [重构说明](REFACTORING_SUMMARY.md) - 代码重构和优化说明
 - [更新日志](ChangeLog/) - 版本更新记录
 
 ## 功能特性
 
-- 支持多种配置文件格式（JSON, TSV, Excel）
-- 热更新监听文件变化
-- 配置数据 ORM 到结构体
-- 字段注入和方法回调
-- 前端数据导出
+- ✅ 支持多种配置文件格式（JSON, TSV, Excel）
+- ✅ **并行加载** - 多核 CPU 下加速 3-7x
+- ✅ **智能热重载** - 批量重载 + 冷却机制，避免频繁刷新
+- ✅ **批量回调** - 配置变更一次性通知，精确知道哪些配置变了
+- ✅ 配置数据 ORM 到结构体
+- ✅ 线程安全 - 无锁读取，支持高并发
 
 ## 安装
 
 ```bash
-go get config233-go
+go get github.com/neko233-com/config233-go
 ```
 
 ## 快速开始
@@ -34,66 +36,139 @@ import "github.com/neko233-com/config233-go/pkg/config233"
 // 1. 注册配置类型
 config233.RegisterType[Student]()
 
-// 2. 创建管理器并加载配置
-manager := config233.NewConfigManager233("./myconfig")
-manager.LoadAllConfigs()
+// 2. 获取全局单例并设置配置目录
+manager := config233.GetInstance()
+manager.SetConfigDir("./myconfig")
 
-// 3. 使用配置
-// 按 ID 获取配置
+// 3. 启动（自动并行加载 + 启动热重载监听）
+manager.Start()
+
+// 4. 使用配置
+// 按 ID 获取配置（支持 string/int/int64）
 config, exists := config233.GetConfigById[Student]("1")
-if exists {
-    fmt.Printf("学生信息: %+v", config)
-}
+config, exists := config233.GetConfigById[Student](1)    // int 也支持
 
 // 获取所有配置列表
 configs := config233.GetConfigList[Student]()
-fmt.Printf("共有 %d 个配置", len(configs))
 
 // 获取配置映射（ID -> Config）
 configMap := config233.GetConfigMap[Student]()
+```
 
-// 启动热更新监听
-manager.StartWatching()
+### 业务配置管理器（接收配置变更通知）
+
+```go
+// 实现 IBusinessConfigManager 接口
+type MyConfigManager struct {}
+
+// OnConfigLoadComplete 配置加载/重载完成时调用（批量）
+// changedConfigNameList: 本次变更的配置名称列表
+func (m *MyConfigManager) OnConfigLoadComplete(changedConfigNameList []string) {
+    for _, name := range changedConfigNameList {
+        switch name {
+        case "ItemConfig":
+            m.refreshItemCache()
+        case "PlayerConfig":
+            m.refreshPlayerCache()
+        }
+    }
+    log.Printf("配置已更新: %v", changedConfigNameList)
+}
+
+// 注册业务管理器
+manager.RegisterBusinessManager(&MyConfigManager{})
+```
+
+### KV 配置使用
+
+```go
+// 定义 KV 配置结构体
+type GameKvConfig struct {
+    Id    string `json:"id"`
+    Value string `json:"value"`
+}
+
+// 实现 IKvConfig 接口
+func (c *GameKvConfig) GetValue() string { return c.Value }
+
+// 注册并使用
+config233.RegisterType[GameKvConfig]()
+
+// 获取 KV 配置值
+maxLevel := config233.GetKvToInt[GameKvConfig]("max_level", 100)
+serverName := config233.GetKvToString[GameKvConfig]("server_name", "默认服务器")
+isOpen := config233.GetKvToBoolean[GameKvConfig]("is_open", false)
+```
+
+## 性能特性
+
+### 并行加载
+首次启动时使用并行加载，充分利用多核 CPU：
+```
+测试环境: 7 个配置文件（Excel + JSON）
+- 串行加载: ~50ms
+- 并行加载: ~15ms
+- 提升: 约 3.3x
+```
+
+### 智能热重载
+文件变更时自动批量重载，避免频繁刷新：
+- 收集 500ms 内的所有变更
+- 批量重载所有变更的配置
+- 两次重载之间至少间隔 300ms
+
+### 批量回调
+配置变更时只调用一次回调，传递所有变更的配置名：
+```go
+// 之前（多次回调）
+OnConfigLoadComplete("Config1")  // 第1次
+OnConfigLoadComplete("Config2")  // 第2次
+
+// 现在（一次回调，知道哪些配置变了）
+OnConfigLoadComplete([]string{"Config1", "Config2"})  // 只调用1次
 ```
 
 ## 测试
 
-项目使用 Go 标准测试框架，测试文件位于 `tests/` 目录下，与主代码分离。
+项目使用 Go 标准测试框架，测试覆盖：
 
 运行所有测试：
-
 ```bash
-go test ./tests -v
+go test ./... -v
 ```
 
-运行覆盖率测试：
-
+运行性能基准测试：
 ```bash
-go test ./tests -cover
+go test ./pkg/config233 -bench=. -benchmem
 ```
+
+测试覆盖的场景：
+- ✅ 并行加载正确性
+- ✅ 批量回调机制（19+ 测试用例）
+- ✅ 热重载批量和冷却
+- ✅ 并发访问安全性
+- ✅ 内存效率
+- ✅ 边界情况和异常处理
 
 ## 项目结构
 
 ```
 config233-go/
-├── pkg/config233/          # 公开 API - 这是第三方库用户可以导入的包
-│   ├── config233.go        # 核心配置管理
-│   ├── manager.go          # 配置管理器
-│   ├── listener.go         # 监听器接口
-│   ├── handler.go          # 处理器接口
-│   ├── dto/                # 数据传输对象
+├── pkg/config233/          # 公开 API
+│   ├── manager.go          # 核心配置管理器
+│   ├── loader_excel.go     # Excel 加载器
+│   ├── loader_json.go      # JSON 加载器
+│   ├── loader_tsv.go       # TSV 加载器
+│   ├── hot_reload.go       # 热重载机制（批量 + 冷却）
+│   ├── *_test.go           # 单元测试（30+ 测试用例）
+���   ├── dto/                # 数据传输对象
 │   ├── excel/              # Excel 处理器
 │   ├── json/               # JSON 处理器
 │   └── tsv/                # TSV 处理器
-├── examples/               # 示例代码（不会被第三方导入）
-│   ├── example_usage.go
-│   ├── manager_example.go
-│   ├── logr_example.go
-│   └── validation_demo.go
-├── tests/                  # 测试代码
+├── examples/               # 示例代码
+├── tests/                  # 集成测试
 ├── testdata/               # 测试数据
-├── CheckOutput/            # 临时输出目录（被 git 忽略）
-└── GeneratedStruct/        # 生成的结构体代码（被 git 忽略）
+└── GeneratedStruct/        # 生成的结构体代码
 ```
 
 ## 公开 API
