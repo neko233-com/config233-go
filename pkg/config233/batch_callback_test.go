@@ -14,6 +14,7 @@ import (
 type mockBusinessManager struct {
 	mutex               sync.RWMutex
 	callCount           int32 // 使用 atomic 操作
+	firstDoneCount      int32 // OnFirstAllConfigDone 调用次数
 	receivedConfigNames [][]string
 	lastCallTime        time.Time
 	callIntervals       []time.Duration
@@ -44,8 +45,17 @@ func (m *mockBusinessManager) OnConfigLoadComplete(changedConfigNameList []strin
 	m.receivedConfigNames = append(m.receivedConfigNames, configsCopy)
 }
 
+// OnFirstAllConfigDone 实现 IBusinessConfigManager 接口
+func (m *mockBusinessManager) OnFirstAllConfigDone() {
+	atomic.AddInt32(&m.firstDoneCount, 1)
+}
+
 func (m *mockBusinessManager) getCallCount() int {
 	return int(atomic.LoadInt32(&m.callCount))
+}
+
+func (m *mockBusinessManager) getFirstDoneCount() int {
+	return int(atomic.LoadInt32(&m.firstDoneCount))
 }
 
 func (m *mockBusinessManager) getReceivedConfigNames() [][]string {
@@ -119,7 +129,83 @@ func TestBatchCallback_InitialLoad(t *testing.T) {
 	t.Logf("✓ 批量回调测试通过：1 次回调，收到 %d 个配置", mockManager.getLastCallConfigCount())
 }
 
-// TestBatchCallback_HotReload 测试热重载时的批量回调
+// TestBatchCallback_OnFirstAllConfigDone 测试首次加载完成回调
+func TestBatchCallback_OnFirstAllConfigDone(t *testing.T) {
+	tempDir := t.TempDir()
+	createTestConfigs(t, tempDir, 3)
+
+	manager := NewConfigManager233(tempDir)
+	mockManager := newMockBusinessManager()
+	manager.RegisterBusinessManager(mockManager)
+
+	// 首次加载
+	if err := manager.LoadAllConfigs(); err != nil {
+		t.Fatalf("首次加载配置失败: %v", err)
+	}
+
+	// 验证：OnFirstAllConfigDone 应该被调用 1 次
+	if firstDoneCount := mockManager.getFirstDoneCount(); firstDoneCount != 1 {
+		t.Errorf("首次加载后 OnFirstAllConfigDone 应被调用 1 次，实际 %d 次", firstDoneCount)
+	}
+
+	// 再次加载（模拟重载）
+	if err := manager.LoadAllConfigs(); err != nil {
+		t.Fatalf("重载配置失败: %v", err)
+	}
+
+	// 验证：OnFirstAllConfigDone 仍然只被调用 1 次（不会重复调用）
+	if firstDoneCount := mockManager.getFirstDoneCount(); firstDoneCount != 1 {
+		t.Errorf("重载后 OnFirstAllConfigDone 仍应只被调用 1 次，实际 %d 次", firstDoneCount)
+	}
+
+	// 验证：OnConfigLoadComplete 应该被调用 2 次（首次加载 + 重载）
+	if callCount := mockManager.getCallCount(); callCount != 2 {
+		t.Errorf("OnConfigLoadComplete 应被调用 2 次，实际 %d 次", callCount)
+	}
+
+	t.Log("✓ OnFirstAllConfigDone 测试通过")
+}
+
+// TestBatchCallback_OnFirstAllConfigDone_MultipleManagers 测试多管理器首次加载完成回调
+func TestBatchCallback_OnFirstAllConfigDone_MultipleManagers(t *testing.T) {
+	tempDir := t.TempDir()
+	createTestConfigs(t, tempDir, 2)
+
+	manager := NewConfigManager233(tempDir)
+
+	// 注册多个管理器
+	managers := make([]*mockBusinessManager, 3)
+	for i := range managers {
+		managers[i] = newMockBusinessManager()
+		manager.RegisterBusinessManager(managers[i])
+	}
+
+	// 首次加载
+	if err := manager.LoadAllConfigs(); err != nil {
+		t.Fatalf("加载配置失败: %v", err)
+	}
+
+	// 验证：所有管理器的 OnFirstAllConfigDone 都被调用 1 次
+	for i, m := range managers {
+		if firstDoneCount := m.getFirstDoneCount(); firstDoneCount != 1 {
+			t.Errorf("Manager%d 的 OnFirstAllConfigDone 应被调用 1 次，实际 %d 次", i+1, firstDoneCount)
+		}
+	}
+
+	// 重载
+	if err := manager.LoadAllConfigs(); err != nil {
+		t.Fatalf("重载配置失败: %v", err)
+	}
+
+	// 验证：OnFirstAllConfigDone 不会再被调用
+	for i, m := range managers {
+		if firstDoneCount := m.getFirstDoneCount(); firstDoneCount != 1 {
+			t.Errorf("重载后 Manager%d 的 OnFirstAllConfigDone 仍应只被调用 1 次，实际 %d 次", i+1, firstDoneCount)
+		}
+	}
+
+	t.Log("✓ 多管理器 OnFirstAllConfigDone 测试通过")
+} // TestBatchCallback_HotReload 测试热重载时的批量回调
 func TestBatchCallback_HotReload(t *testing.T) {
 	tempDir := t.TempDir()
 	configNames := createTestConfigs(t, tempDir, 2)
@@ -361,6 +447,10 @@ func (m *orderTrackingManager) OnConfigLoadComplete(changedConfigNameList []stri
 	}
 }
 
+func (m *orderTrackingManager) OnFirstAllConfigDone() {
+	// 空实现
+}
+
 // TestBatchCallback_EmptyConfigList 测试空配置列表不触发回调
 func TestBatchCallback_EmptyConfigList(t *testing.T) {
 	tempDir := t.TempDir()
@@ -522,6 +612,10 @@ func (m *sliceModifyingManager) OnConfigLoadComplete(changedConfigNameList []str
 		changedConfigNameList[0] = "MODIFIED"
 	}
 	m.received = append(m.received, changedConfigNameList)
+}
+
+func (m *sliceModifyingManager) OnFirstAllConfigDone() {
+	// 空实现
 }
 
 // TestBatchCallback_RapidReload 测试快速连续重载
@@ -714,6 +808,10 @@ func (m *timingTrackingManager) OnConfigLoadComplete(changedConfigNameList []str
 	if m.onCallback != nil {
 		m.onCallback()
 	}
+}
+
+func (m *timingTrackingManager) OnFirstAllConfigDone() {
+	// 空实现
 }
 
 // TestBatchCallback_ReloadAfterModify 测试修改后重载

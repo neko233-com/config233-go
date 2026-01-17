@@ -14,18 +14,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// IKvConfig KvConfig接口，避免反射实现
-type IKvConfig interface {
-	GetValue() string
-}
-
-// IBusinessConfigManager 业务配置管理器接口
-type IBusinessConfigManager interface {
-	// OnConfigLoadComplete 配置加载完成回调（批量）
-	// changedConfigNameList: 发生变更的配置名称列表
-	OnConfigLoadComplete(changedConfigNameList []string)
-}
-
 // ConfigManager233 全新的配置管理器，支持热重载
 // 提供简化的配置管理接口，支持多种配置格式的自动加载和热重载
 // 内部使用 Config233 进行文件监听和配置处理
@@ -41,7 +29,8 @@ type ConfigManager233 struct {
 	globalSlices     atomic.Value                      // 缓存 slice []interface{} (存储 *map[string][]interface{})
 	registeredTypes  map[string]reflect.Type           // 已注册的类型
 	registerTypeMu   sync.RWMutex                      // 保护 registeredTypes
-	started          atomic.Bool                       // 是否已启动，启动后不允许修改配置目录
+	isStarted        atomic.Bool                       // 是否已启动，启动后不允许修改配置目录
+	isFirstLoadDone  atomic.Bool                       // 首次加载是否完成
 }
 
 var (
@@ -98,7 +87,7 @@ func init() {
 //	*ConfigManager233: 返回自身，支持链式调用
 //	error: 如果已启动则返回错误
 func (cm *ConfigManager233) SetConfigDir(configDir string) (*ConfigManager233, error) {
-	if cm.started.Load() {
+	if cm.isStarted.Load() {
 		return cm, fmt.Errorf("配置管理器已启动，不允许修改配置目录")
 	}
 	cm.mutex.Lock()
@@ -114,7 +103,7 @@ func (cm *ConfigManager233) SetConfigDir(configDir string) (*ConfigManager233, e
 //	*ConfigManager233: 返回自身，支持链式调用
 //	error: 启动过程中的错误
 func (cm *ConfigManager233) Start() (*ConfigManager233, error) {
-	if cm.started.Load() {
+	if cm.isStarted.Load() {
 		return cm, nil // 已经启动，直接返回
 	}
 
@@ -129,7 +118,7 @@ func (cm *ConfigManager233) Start() (*ConfigManager233, error) {
 	}
 
 	// 标记为已启动
-	cm.started.Store(true)
+	cm.isStarted.Store(true)
 
 	return cm, nil
 }
@@ -140,7 +129,7 @@ func (cm *ConfigManager233) Start() (*ConfigManager233, error) {
 func NewConfigManager233(configDir string) *ConfigManager233 {
 	manager := GetInstance()
 	// 如果未启动，清空之前的配置（用于测试场景）
-	if !manager.started.Load() {
+	if !manager.isStarted.Load() {
 		manager.mutex.Lock()
 		manager.configs = make(map[string]interface{})
 		manager.configMaps = make(map[string]map[string]interface{})
@@ -148,6 +137,10 @@ func NewConfigManager233(configDir string) *ConfigManager233 {
 		// 清空缓存
 		manager.globalIdMaps.Store(&map[string]map[string]interface{}{})
 		manager.globalSlices.Store(&map[string][]interface{}{})
+		// 重置首次加载标志（用于测试场景）
+		manager.isFirstLoadDone.Store(false)
+		// 清空业务管理器列表（用于测试场景）
+		manager.businessManagers = nil
 		manager.mutex.Unlock()
 	} else {
 		// 如果已启动，只更新配置目录（会返回错误，但保持向后兼容）
@@ -156,7 +149,7 @@ func NewConfigManager233(configDir string) *ConfigManager233 {
 	return manager
 }
 
-// RegisterType 注册配置结构体类型，用于将加��的配置数据自动转换为指定类型
+// RegisterType 注册配置结构体类型，用于将加载的配置数据自动转换为指定类型
 // 这个函数应该在加载配置之前调用
 func (cm *ConfigManager233) RegisterType(typ reflect.Type) {
 	if typ == nil {
@@ -359,6 +352,15 @@ func (cm *ConfigManager233) LoadAllConfigs() error {
 			copy(configNamesCopy, configNames)
 			manager.OnConfigLoadComplete(configNamesCopy)
 		}
+	}
+
+	// 首次加载完成后，调用 OnFirstAllConfigDone 回调
+	// 使用 CAS 确保只调用一次
+	if cm.isFirstLoadDone.CompareAndSwap(false, true) {
+		for _, manager := range cm.businessManagers {
+			manager.OnFirstAllConfigDone()
+		}
+		getLogger().Info("首次配置加载完成，已通知所有业务管理器")
 	}
 
 	return nil

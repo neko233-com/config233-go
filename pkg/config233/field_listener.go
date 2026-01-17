@@ -15,8 +15,9 @@ type FieldUpdateListener struct {
 // 当配置数据发生变化时，此方法会被触发来更新对应的字段
 // 它会重新构建 UID 到配置对象的映射，并更新对象的字段
 // 参数:
-//   typ: 发生变化的配置数据类型
-//   dataList: 新的配置数据列表
+//
+//	typ: 发生变化的配置数据类型
+//	dataList: 新的配置数据列表
 func (l *FieldUpdateListener) OnConfigDataChange(typ reflect.Type, dataList []interface{}) {
 	if typ != l.fieldType {
 		return

@@ -63,6 +63,7 @@ type MyConfigManager struct {}
 
 // OnConfigLoadComplete 配置加载/重载完成时调用（批量）
 // changedConfigNameList: 本次变更的配置名称列表
+// 首次加载和热重载时都会调用
 func (m *MyConfigManager) OnConfigLoadComplete(changedConfigNameList []string) {
     for _, name := range changedConfigNameList {
         switch name {
@@ -73,6 +74,14 @@ func (m *MyConfigManager) OnConfigLoadComplete(changedConfigNameList []string) {
         }
     }
     log.Printf("配置已更新: %v", changedConfigNameList)
+}
+
+// OnFirstAllConfigDone 首次所有配置加载完成后调用
+// 仅在首次启动时调用一次，热重载时不会调用
+// 适用于需要在所有配置加载完成后进行初始化的场景
+func (m *MyConfigManager) OnFirstAllConfigDone() {
+    log.Println("所有配置首次加载完成，开始初始化业务...")
+    m.initBusinessLogic()
 }
 
 // 注册业务管理器
@@ -155,13 +164,14 @@ go test ./pkg/config233 -bench=. -benchmem
 ```
 config233-go/
 ├── pkg/config233/          # 公开 API
+│   ├── api_config233.go    # 🆕 核心接口定义（IKvConfig, IBusinessConfigManager等）
 │   ├── manager.go          # 核心配置管理器
 │   ├── loader_excel.go     # Excel 加载器
 │   ├── loader_json.go      # JSON 加载器
 │   ├── loader_tsv.go       # TSV 加载器
 │   ├── hot_reload.go       # 热重载机制（批量 + 冷却）
 │   ├── *_test.go           # 单元测试（30+ 测试用例）
-���   ├── dto/                # 数据传输对象
+│   ├── dto/                # 数据传输对象
 │   ├── excel/              # Excel 处理器
 │   ├── json/               # JSON 处理器
 │   └── tsv/                # TSV 处理器
@@ -169,6 +179,32 @@ config233-go/
 ├── tests/                  # 集成测试
 ├── testdata/               # 测试数据
 └── GeneratedStruct/        # 生成的结构体代码
+```
+
+## 核心接口
+
+### IBusinessConfigManager（业务配置管理器接口）
+
+位于 `api_config233.go` 文件中，提供配置变更通知能力：
+
+```go
+type IBusinessConfigManager interface {
+    // 批量配置变更回调
+    OnConfigLoadComplete(changedConfigNameList []string)
+    
+    // 首次加载完成回调（仅调用一次）
+    OnFirstAllConfigDone()
+}
+```
+
+### IKvConfig（键值配置接口）
+
+用于键值对类型的配置访问：
+
+```go
+type IKvConfig interface {
+    GetValue() string
+}
 ```
 
 ## 公开 API
