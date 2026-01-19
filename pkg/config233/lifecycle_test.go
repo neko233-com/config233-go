@@ -40,9 +40,8 @@ func (c *ValidatorConfig) Check() error {
 }
 
 func TestLifecycleAndValidator(t *testing.T) {
-	// 确保单例被重置 (Simple hack: tests run sequentially usually)
-
-	t.Run("Lifecycle", func(t *testing.T) {
+	// 1. Registered Type - Lifecycle
+	t.Run("Lifecycle_Registered", func(t *testing.T) {
 		tempDir := t.TempDir()
 		configFile := filepath.Join(tempDir, "LifecycleConfig.json")
 
@@ -59,26 +58,69 @@ func TestLifecycleAndValidator(t *testing.T) {
 			t.Fatalf("Load failed: %v", err)
 		}
 
-		// Verify using GetConfigMap
+		// Verify map (AfterLoad should have been called during load)
 		loadedMap := GetConfigMap[LifecycleConfig]()
 		if loadedMap == nil {
 			t.Fatal("Config map is nil")
 		}
-
 		cfg, ok := loadedMap["1"]
 		if !ok {
 			t.Fatal("Config id 1 not found")
 		}
-
 		if cfg.Name != "Test1_Processed" {
 			t.Errorf("Expected Name 'Test1_Processed', got '%s'", cfg.Name)
 		}
 		if !cfg.processed {
 			t.Error("processed should be true")
 		}
+
+		// Verify list
+		loadedList := GetConfigList[LifecycleConfig]()
+		if len(loadedList) != 1 {
+			t.Errorf("Expected list size 1, got %d", len(loadedList))
+		} else {
+			if loadedList[0].Name != "Test1_Processed" {
+				t.Errorf("List item not processed: %s", loadedList[0].Name)
+			}
+		}
 	})
 
-	t.Run("Validator", func(t *testing.T) {
+	// 2. Unregistered Type - Lifecycle
+	t.Run("Lifecycle_Unregistered", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configFile := filepath.Join(tempDir, "LifecycleConfig.json")
+
+		data := []map[string]interface{}{
+			{"id": "1", "name": "TestUnreg"},
+		}
+		fileContent, _ := json.Marshal(data)
+		os.WriteFile(configFile, fileContent, 0644)
+
+		manager := NewConfigManager233(tempDir)
+		// Ensure NO types are registered
+		if len(manager.registeredTypes) != 0 {
+			t.Fatal("Registered types should be empty")
+		}
+
+		if err := manager.loadJsonConfig(configFile); err != nil {
+			t.Fatalf("Load failed: %v", err)
+		}
+
+		// Verify GetConfigById (Generic conversion triggers AfterLoad)
+		cfg, ok := GetConfigById[LifecycleConfig]("1")
+		if !ok {
+			t.Fatal("Config id 1 not found via GetConfigById")
+		}
+		if cfg.Name != "TestUnreg_Processed" {
+			t.Errorf("Expected Name 'TestUnreg_Processed', got '%s'", cfg.Name)
+		}
+		if !cfg.processed {
+			t.Error("processed should be true")
+		}
+	})
+
+	// 3. Registered Type - Validator
+	t.Run("Validator_Registered", func(t *testing.T) {
 		tempDir := t.TempDir()
 		configFile := filepath.Join(tempDir, "ValidatorConfig.json")
 
@@ -96,9 +138,8 @@ func TestLifecycleAndValidator(t *testing.T) {
 			t.Fatalf("Load failed: %v", err)
 		}
 
-		// Verify map
+		// Verify map (Item 2 should be missing because it failed Check during load)
 		loadedMap := GetConfigMap[ValidatorConfig]()
-
 		if _, ok := loadedMap["1"]; !ok {
 			t.Error("Item 1 should be loaded")
 		}
@@ -123,6 +164,44 @@ func TestLifecycleAndValidator(t *testing.T) {
 		}
 		if found2 {
 			t.Error("Item 2 should NOT be in list")
+		}
+	})
+
+	// 4. Unregistered Type - Validator
+	t.Run("Validator_Unregistered", func(t *testing.T) {
+		tempDir := t.TempDir()
+		configFile := filepath.Join(tempDir, "ValidatorConfig.json")
+
+		data := []map[string]interface{}{
+			{"id": "1", "shouldFail": false},
+			{"id": "2", "shouldFail": true},
+		}
+		fileContent, _ := json.Marshal(data)
+		os.WriteFile(configFile, fileContent, 0644)
+
+		manager := NewConfigManager233(tempDir)
+		// No register
+
+		if err := manager.loadJsonConfig(configFile); err != nil {
+			t.Fatalf("Load failed: %v", err)
+		}
+
+		// Verify GetConfigById (Generic conversion triggers Check)
+		if _, ok := GetConfigById[ValidatorConfig]("1"); !ok {
+			t.Error("Item 1 should be found")
+		}
+		if _, ok := GetConfigById[ValidatorConfig]("2"); ok {
+			// convertMapToStruct should fail check and return error, so ok should be false
+			t.Error("Item 2 should NOT be found (validation failed)")
+		}
+
+		// Verify GetConfigMap (Should filter out bad items)
+		loadedMap := GetConfigMap[ValidatorConfig]()
+		if _, ok := loadedMap["1"]; !ok {
+			t.Error("Item 1 should be loaded in map")
+		}
+		if _, ok := loadedMap["2"]; ok {
+			t.Error("Item 2 should NOT be loaded in map")
 		}
 	})
 }

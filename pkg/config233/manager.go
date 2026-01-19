@@ -142,6 +142,10 @@ func NewConfigManager233(configDir string) *ConfigManager233 {
 		// 清空业务管理器列表（用于测试场景）
 		manager.businessManagers = nil
 		manager.mutex.Unlock()
+
+		manager.registerTypeMu.Lock()
+		manager.registeredTypes = make(map[string]reflect.Type)
+		manager.registerTypeMu.Unlock()
 	} else {
 		// 如果已启动，只更新配置目录（会返回错误，但保持向后兼容）
 		manager.SetConfigDir(configDir)
