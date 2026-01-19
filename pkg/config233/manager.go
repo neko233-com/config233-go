@@ -204,6 +204,19 @@ func (cm *ConfigManager233) convertMapToRegisteredStruct(configName string, data
 	if jsonBytes, err := json.Marshal(processedData); err == nil {
 		instance := reflect.New(typ).Interface()
 		if err := json.Unmarshal(jsonBytes, instance); err == nil {
+			// lifecycle/Check 校验配置
+			if validator, ok := instance.(IConfigValidator); ok {
+				if err := validator.Check(); err != nil {
+					getLogger().Error(err, "配置校验失败", "configName", configName, "data", data)
+					return nil, err
+				}
+			}
+
+			// lifecycle/AfterLoad 生命周期回调
+			if lifecycle, ok := instance.(IConfigLifecycle); ok {
+				lifecycle.AfterLoad()
+			}
+
 			// 返回解引用的指针
 			return reflect.ValueOf(instance).Elem().Addr().Interface(), nil
 		} else {
@@ -541,12 +554,32 @@ func convertMapToStruct[T any](data map[string]interface{}) (*T, error) {
 	if jsonBytes, err := json.Marshal(data); err == nil {
 		var result T
 		if err := json.Unmarshal(jsonBytes, &result); err == nil {
+			// 校验
+			if validator, ok := any(&result).(IConfigValidator); ok {
+				if err := validator.Check(); err != nil {
+					return nil, err
+				}
+			}
+			// 生命周期
+			if lifecycle, ok := any(&result).(IConfigLifecycle); ok {
+				lifecycle.AfterLoad()
+			}
 			return &result, nil
 		} else {
 			// 如果直接转换失败，尝试预处理数据
 			processedData := preprocessMapData(data)
 			if processedJsonBytes, processedErr := json.Marshal(processedData); processedErr == nil {
 				if err := json.Unmarshal(processedJsonBytes, &result); err == nil {
+					// 校验
+					if validator, ok := any(&result).(IConfigValidator); ok {
+						if err := validator.Check(); err != nil {
+							return nil, err
+						}
+					}
+					// 生命周期
+					if lifecycle, ok := any(&result).(IConfigLifecycle); ok {
+						lifecycle.AfterLoad()
+					}
 					return &result, nil
 				}
 			}
