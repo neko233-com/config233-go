@@ -1,7 +1,6 @@
 package config233
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -196,6 +195,8 @@ func (cm *ConfigManager233) getRegisteredType(configName string) (reflect.Type, 
 }
 
 // convertMapToRegisteredStruct 将 map 转换为已注册的结构体类型
+// 使用 config233_column tag 来映射 Excel 列名到 struct 字段
+// 如果没有 config233_column tag，则使用字段名匹配（不区分大小写）
 func (cm *ConfigManager233) convertMapToRegisteredStruct(configName string, data map[string]interface{}) (interface{}, error) {
 	typ, exists := cm.getRegisteredType(configName)
 	if !exists {
@@ -203,33 +204,274 @@ func (cm *ConfigManager233) convertMapToRegisteredStruct(configName string, data
 		return data, nil
 	}
 
-	// 对于所有情况，使用预处理数据转换
-	processedData := preprocessMapData(data)
-	if jsonBytes, err := json.Marshal(processedData); err == nil {
-		instance := reflect.New(typ).Interface()
-		if err := json.Unmarshal(jsonBytes, instance); err == nil {
-			// lifecycle/Check 校验配置
-			if validator, ok := instance.(IConfigValidator); ok {
-				if err := validator.Check(); err != nil {
-					getLogger().Error(err, "配置校验失败", "configName", configName, "data", data)
-					return nil, err
+	// 创建新实例
+	instance := reflect.New(typ).Elem()
+
+	// 构建 map key 到 struct 字段名的映射
+	// 优先使用 config233_column tag，否则使用字段名匹配
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		fieldName := field.Name
+
+		// 获取 config233_column tag
+		columnTag := field.Tag.Get("config233_column")
+		jsonTag := field.Tag.Get("json")
+		// parse json tag to get name (e.g. `json:"id,omitempty"`)
+		if jsonTag != "" {
+			parts := strings.Split(jsonTag, ",")
+			jsonTag = parts[0]
+		}
+
+		// 确定要查找的 key
+		var keyToFind string
+		if columnTag != "" {
+			keyToFind = columnTag
+		} else if jsonTag != "" {
+			keyToFind = jsonTag
+		} else {
+			// 使用字段名（尝试小写首字母）
+			keyToFind = lowerFirst(fieldName)
+		}
+
+		// 在 data 中查找对应的值
+		var value interface{}
+		var found bool
+
+		// 优先精确匹配
+		if v, ok := data[keyToFind]; ok {
+			value = v
+			found = true
+		} else if columnTag == "" && jsonTag == "" {
+			// 如果没有 config233_column 或 json tag，尝试不区分大小写匹配
+			for k, v := range data {
+				if strings.EqualFold(k, fieldName) || strings.EqualFold(k, keyToFind) {
+					value = v
+					found = true
+					break
 				}
 			}
-
-			// lifecycle/AfterLoad 生命周期回调
-			if lifecycle, ok := instance.(IConfigLifecycle); ok {
-				lifecycle.AfterLoad()
-			}
-
-			// 返回解引用的指针
-			return reflect.ValueOf(instance).Elem().Addr().Interface(), nil
-		} else {
-			// 转换失败，返回原始错误
-			return nil, err
 		}
-	} else {
-		return nil, err
+
+		if !found {
+			continue
+		}
+
+		// 设置字段值
+		fieldValue := instance.Field(i)
+		if !fieldValue.CanSet() {
+			continue
+		}
+
+		if err := setFieldValueFromInterface(fieldValue, value, configName, fieldName); err != nil {
+			fmt.Printf("\033[31m[config233] 字段类型转换失败 [%s.%s]: %v\033[0m\n", configName, fieldName, err)
+		}
 	}
+
+	// 获取指针以便调用方法
+	instancePtr := instance.Addr().Interface()
+
+	// lifecycle/AfterLoad 生命周期回调
+	if lifecycle, ok := instancePtr.(IConfigLifecycle); ok {
+		lifecycle.AfterLoad()
+	}
+
+	// lifecycle/Check 校验配置
+	if validator, ok := instancePtr.(IConfigValidator); ok {
+		if err := validator.Check(); err != nil {
+			fmt.Printf("\033[31m[config233] 配置校验失败 [%s]: %v\033[0m\n", configName, err)
+			getLogger().Error(err, "配置校验失败", "configName", configName, "data", data)
+			// 注意：校验失败仍然返回实例，只是输出错误信息
+		}
+	}
+
+	return instancePtr, nil
+}
+
+// setFieldValueFromInterface 从 interface{} 设置字段值，自动类型转换
+func setFieldValueFromInterface(field reflect.Value, value interface{}, _, _ string) error {
+	if value == nil {
+		return nil
+	}
+
+	switch field.Kind() {
+	case reflect.String:
+		field.SetString(fmt.Sprintf("%v", value))
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		intVal, err := toInt64(value)
+		if err != nil {
+			return fmt.Errorf("无法将 '%v' 转换为 int: %w", value, err)
+		}
+		field.SetInt(intVal)
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		uintVal, err := toUint64(value)
+		if err != nil {
+			return fmt.Errorf("无法将 '%v' 转换为 uint: %w", value, err)
+		}
+		field.SetUint(uintVal)
+
+	case reflect.Float32, reflect.Float64:
+		floatVal, err := toFloat64(value)
+		if err != nil {
+			return fmt.Errorf("无法将 '%v' 转换为 float: %w", value, err)
+		}
+		field.SetFloat(floatVal)
+
+	case reflect.Bool:
+		boolVal, err := toBool(value)
+		if err != nil {
+			return fmt.Errorf("无法将 '%v' 转换为 bool: %w", value, err)
+		}
+		field.SetBool(boolVal)
+
+	default:
+		return fmt.Errorf("不支持的字段类型: %v", field.Kind())
+	}
+	return nil
+}
+
+// toInt64 将 interface{} 转换为 int64
+func toInt64(v interface{}) (int64, error) {
+	switch t := v.(type) {
+	case int:
+		return int64(t), nil
+	case int8:
+		return int64(t), nil
+	case int16:
+		return int64(t), nil
+	case int32:
+		return int64(t), nil
+	case int64:
+		return t, nil
+	case uint:
+		return int64(t), nil
+	case uint8:
+		return int64(t), nil
+	case uint16:
+		return int64(t), nil
+	case uint32:
+		return int64(t), nil
+	case uint64:
+		return int64(t), nil
+	case float32:
+		return int64(t), nil
+	case float64:
+		return int64(t), nil
+	case string:
+		if t == "" {
+			return 0, nil
+		}
+		return strconv.ParseInt(t, 10, 64)
+	default:
+		return 0, fmt.Errorf("unsupported type %T", v)
+	}
+}
+
+// toUint64 将 interface{} 转换为 uint64
+func toUint64(v interface{}) (uint64, error) {
+	switch t := v.(type) {
+	case int:
+		return uint64(t), nil
+	case int8:
+		return uint64(t), nil
+	case int16:
+		return uint64(t), nil
+	case int32:
+		return uint64(t), nil
+	case int64:
+		return uint64(t), nil
+	case uint:
+		return uint64(t), nil
+	case uint8:
+		return uint64(t), nil
+	case uint16:
+		return uint64(t), nil
+	case uint32:
+		return uint64(t), nil
+	case uint64:
+		return t, nil
+	case float32:
+		return uint64(t), nil
+	case float64:
+		return uint64(t), nil
+	case string:
+		if t == "" {
+			return 0, nil
+		}
+		return strconv.ParseUint(t, 10, 64)
+	default:
+		return 0, fmt.Errorf("unsupported type %T", v)
+	}
+}
+
+// toFloat64 将 interface{} 转换为 float64
+func toFloat64(v interface{}) (float64, error) {
+	switch t := v.(type) {
+	case int:
+		return float64(t), nil
+	case int8:
+		return float64(t), nil
+	case int16:
+		return float64(t), nil
+	case int32:
+		return float64(t), nil
+	case int64:
+		return float64(t), nil
+	case uint:
+		return float64(t), nil
+	case uint8:
+		return float64(t), nil
+	case uint16:
+		return float64(t), nil
+	case uint32:
+		return float64(t), nil
+	case uint64:
+		return float64(t), nil
+	case float32:
+		return float64(t), nil
+	case float64:
+		return t, nil
+	case string:
+		if t == "" {
+			return 0, nil
+		}
+		return strconv.ParseFloat(t, 64)
+	default:
+		return 0, fmt.Errorf("unsupported type %T", v)
+	}
+}
+
+// toBool 将 interface{} 转换为 bool
+func toBool(v interface{}) (bool, error) {
+	switch t := v.(type) {
+	case bool:
+		return t, nil
+	case int, int8, int16, int32, int64:
+		return reflect.ValueOf(t).Int() != 0, nil
+	case uint, uint8, uint16, uint32, uint64:
+		return reflect.ValueOf(t).Uint() != 0, nil
+	case float32, float64:
+		return reflect.ValueOf(t).Float() != 0, nil
+	case string:
+		if t == "" || t == "0" || strings.EqualFold(t, "false") {
+			return false, nil
+		}
+		if t == "1" || strings.EqualFold(t, "true") {
+			return true, nil
+		}
+		return false, fmt.Errorf("cannot parse '%s' as bool", t)
+	default:
+		return false, fmt.Errorf("unsupported type %T", v)
+	}
+}
+
+// lowerFirst 将字符串首字母转为小写
+func lowerFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToLower(s[:1]) + s[1:]
 }
 
 // convertSliceToRegisteredStructSlice 将 []interface{} 转换为已注册结构体类型的切片
@@ -553,46 +795,78 @@ func typeNameOf[T any]() string {
 }
 
 // convertMapToStruct 将 map[string]interface{} 转换为指定的 struct 类型
+// 使用 config233_column tag 来映射字段，如果没有则使用字段名匹配
 func convertMapToStruct[T any](data map[string]interface{}) (*T, error) {
-	// 先尝试直接 JSON 序列化/反序列化
-	if jsonBytes, err := json.Marshal(data); err == nil {
-		var result T
-		if err := json.Unmarshal(jsonBytes, &result); err == nil {
-			// 校验
-			if validator, ok := any(&result).(IConfigValidator); ok {
-				if err := validator.Check(); err != nil {
-					return nil, err
-				}
-			}
-			// 生命周期
-			if lifecycle, ok := any(&result).(IConfigLifecycle); ok {
-				lifecycle.AfterLoad()
-			}
-			return &result, nil
-		} else {
-			// 如果直接转换失败，尝试预处理数据
-			processedData := preprocessMapData(data)
-			if processedJsonBytes, processedErr := json.Marshal(processedData); processedErr == nil {
-				if err := json.Unmarshal(processedJsonBytes, &result); err == nil {
-					// 校验
-					if validator, ok := any(&result).(IConfigValidator); ok {
-						if err := validator.Check(); err != nil {
-							return nil, err
-						}
-					}
-					// 生命周期
-					if lifecycle, ok := any(&result).(IConfigLifecycle); ok {
-						lifecycle.AfterLoad()
-					}
-					return &result, nil
-				}
-			}
-			// 返回原始错误
-			return nil, err
+	var result T
+	typ := reflect.TypeOf(result)
+	val := reflect.ValueOf(&result).Elem()
+
+	// 构建 map key 到 struct 字段的映射并设置值
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		fieldName := field.Name
+		columnTag := field.Tag.Get("config233_column")
+		jsonTag := field.Tag.Get("json")
+		if jsonTag != "" {
+			parts := strings.Split(jsonTag, ",")
+			jsonTag = parts[0]
 		}
-	} else {
-		return nil, err
+
+		// 确定要查找的 key
+		var keyToFind string
+		if columnTag != "" {
+			keyToFind = columnTag
+		} else if jsonTag != "" {
+			keyToFind = jsonTag
+		} else {
+			keyToFind = lowerFirst(fieldName)
+		}
+
+		// 在 data 中查找对应的值
+		var value interface{}
+		var found bool
+
+		if v, ok := data[keyToFind]; ok {
+			value = v
+			found = true
+		} else if columnTag == "" && jsonTag == "" {
+			// 如果没有 config233_column 或 json tag，尝试不区分大小写匹配
+			for k, v := range data {
+				if strings.EqualFold(k, fieldName) || strings.EqualFold(k, keyToFind) {
+					value = v
+					found = true
+					break
+				}
+			}
+		}
+
+		if !found {
+			continue
+		}
+
+		fieldValue := val.Field(i)
+		if !fieldValue.CanSet() {
+			continue
+		}
+
+		if err := setFieldValueFromInterface(fieldValue, value, "", ""); err != nil {
+			fmt.Printf("\033[31m[config233] 字段类型转换失败 [%s.%s]: %v\033[0m\n", typ.Name(), fieldName, err)
+		}
 	}
+
+	// 校验
+	if validator, ok := any(&result).(IConfigValidator); ok {
+		if err := validator.Check(); err != nil {
+			fmt.Printf("\033[31m[config233] 配置校验失败 [%s]: %v\033[0m\n", typ.Name(), err)
+		}
+	}
+
+	// 生命周期
+	if lifecycle, ok := any(&result).(IConfigLifecycle); ok {
+		lifecycle.AfterLoad()
+	}
+
+	return &result, nil
 }
 
 // preprocessMapData 预处理 map 数据，处理类型不匹配问题（如空字符串转数字）

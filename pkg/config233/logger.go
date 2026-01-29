@@ -1,29 +1,49 @@
 package config233
 
 import (
-	"github.com/go-logr/logr"
+	"fmt"
 )
 
-// Logger 日志接口，基于 logr
-// logr 是 Go 生态中类似 slf4j 的日志抽象接口
-// 用户可以注入不同的日志实现（如 zap, zerolog 等）
-type Logger = logr.Logger
+// Logger 日志接口
+type Logger interface {
+	Info(msg string, keysAndValues ...interface{})
+	Error(err error, msg string, keysAndValues ...interface{})
+}
+
+// ConsoleLogger 默认的控制台日志实现
+type ConsoleLogger struct{}
+
+func (l *ConsoleLogger) Info(msg string, keysAndValues ...interface{}) {
+	kvStr := ""
+	if len(keysAndValues) > 0 {
+		kvStr = fmt.Sprintf(" %v", keysAndValues)
+	}
+	fmt.Printf("[INFO] %s%s\n", msg, kvStr)
+}
+
+func (l *ConsoleLogger) Error(err error, msg string, keysAndValues ...interface{}) {
+	kvStr := ""
+	if len(keysAndValues) > 0 {
+		kvStr = fmt.Sprintf(" %v", keysAndValues)
+	}
+	if err != nil {
+		fmt.Printf("\033[31m[ERROR] %s: %v%s\033[0m\n", msg, err, kvStr)
+	} else {
+		fmt.Printf("\033[31m[ERROR] %s%s\033[0m\n", msg, kvStr)
+	}
+}
 
 // SetLogger 设置全局日志实现
-// 用户可以调用此函数设置自定义的日志实现
-// 例如: SetLogger(zap.New(...)) 或 SetLogger(zerolog.New(...))
-var globalLogger Logger
+var globalLogger Logger = &ConsoleLogger{}
 
 func SetLogger(logger Logger) {
 	globalLogger = logger
 }
 
 // getLogger 获取当前日志实现
-// 如果未设置，使用默认的 logr.Discard()（不输出日志）
 func getLogger() Logger {
-	if globalLogger.IsZero() {
-		// 返回一个不输出日志的 logger，避免 nil 指针
-		return logr.Discard()
+	if globalLogger == nil {
+		return &ConsoleLogger{}
 	}
 	return globalLogger
 }

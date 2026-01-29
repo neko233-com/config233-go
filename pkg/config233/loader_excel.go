@@ -43,7 +43,6 @@ func (cm *ConfigManager233) loadExcelConfigThreadSafe(filePath string) error {
 			// 如果有注册的类型，转换为具体结构体
 			if converted, err := cm.convertMapToRegisteredStruct(fileName, item); err == nil {
 				configMap[id] = converted
-				getLogger().Info("成功转换配置项", "index", -1, "configName", fileName, "itemId", item["itemId"])
 			} else {
 				// 转换失败则使用原始 map
 				configMap[id] = item
@@ -58,7 +57,6 @@ func (cm *ConfigManager233) loadExcelConfigThreadSafe(filePath string) error {
 		// 尝试转换为注册的结构体类型
 		if converted, err := cm.convertMapToRegisteredStruct(fileName, v); err == nil {
 			slice[i] = converted
-			getLogger().Info("成功转换配置项", "index", i, "configName", fileName, "itemId", v["itemId"])
 		} else {
 			// 转换失败则使用原始 map
 			slice[i] = v
@@ -74,6 +72,8 @@ func (cm *ConfigManager233) loadExcelConfigThreadSafe(filePath string) error {
 
 	// 更新缓存（内部已有锁保护）
 	cm.setConfigCache(fileName, configMap, slice)
+
+	getLogger().Info("Excel配置加载完成", "configName", fileName, "count", len(slice))
 
 	return nil
 }

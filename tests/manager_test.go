@@ -445,8 +445,7 @@ func TestConfigManager233_GetKvToCsvStringList(t *testing.T) {
 	// 3. 定义 Struct 并注册
 	// 注意: 放在 Test 内部定义的类型无法被反射正确实例化（reflect.New 可能会有问题，或者 Name 为空）
 	// 所以我们使用 TestKvConfig (包级定义)
-	// TODO: Register 函数未实现
-	// config233.Register[TestKvConfig]()
+	config233.RegisterType[TestKvConfig]()
 
 	// 4. 加载配置
 	if err := config233.Instance.LoadAllConfigs(); err != nil {
@@ -495,3 +494,5 @@ func (c TestKvConfig) GetUid() any {
 func (c TestKvConfig) GetValue() string {
 	return c.Val
 }
+
+var _ config233.IKvConfig = (*TestKvConfig)(nil)

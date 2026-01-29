@@ -100,7 +100,7 @@ func (h *ExcelConfigHandler) ReadToFrontEndDataList(configName, configFileFullPa
 		// 从第二列开始（跳过第一列的标识符）
 		for i := 1; i < len(row); i++ {
 			if i < len(headers) {
-				fieldName := headers[i]
+				fieldName := strings.TrimSpace(headers[i])
 				if fieldName == "" {
 					continue
 				}

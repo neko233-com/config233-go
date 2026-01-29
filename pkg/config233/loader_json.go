@@ -65,7 +65,6 @@ func (cm *ConfigManager233) loadJsonConfigThreadSafe(filePath string) error {
 		// 尝试转换为注册的结构体类型
 		if converted, err := cm.convertMapToRegisteredStruct(fileName, v); err == nil {
 			slice[i] = converted
-			getLogger().Info("成功转换JSON配置项", "index", i, "configName", fileName, "itemId", v["itemId"])
 		} else {
 			// 转换失败则使用原始 map
 			slice[i] = v
@@ -81,6 +80,8 @@ func (cm *ConfigManager233) loadJsonConfigThreadSafe(filePath string) error {
 
 	// 更新缓存（内部已有锁保护）
 	cm.setConfigCache(fileName, configMap, slice)
+
+	getLogger().Info("JSON配置加载完成", "configName", fileName, "count", len(slice))
 
 	return nil
 }

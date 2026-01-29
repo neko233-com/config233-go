@@ -16,7 +16,7 @@ import (
 type FishingWeaponConfig struct {
 	Id                  int `json:"id" config233_column:"id"`
 	SkillId             int `json:"skillId" config233_column:"skillId"`
-	UnlockCostGoldCount int `json:"unlockCostGoldCount" config233_column:"unlockCostGoldGoldCount"`
+	UnlockCostGoldCount int `json:"unlockCostGoldCount" config233_column:"unlockCostGoldCount"`
 }
 
 // AfterLoad 配置加载后调用
