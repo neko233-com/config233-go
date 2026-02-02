@@ -5,7 +5,7 @@ package generated
 
 // FishingWeaponConfig 配置结构体
 type FishingWeaponConfig struct {
-	Id                  int `json:"id"`
+	Id int `json:"id"`
 	UnlockCostGoldCount int `json:"unlockCostGoldCount"`
-	SkillId             int `json:"skillId"`
+	SkillId int `json:"skillId"`
 }

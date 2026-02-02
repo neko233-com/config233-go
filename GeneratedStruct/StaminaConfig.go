@@ -5,8 +5,8 @@ package generated
 
 // StaminaConfig 配置结构体
 type StaminaConfig struct {
-	Type               string `json:"type"`
-	MaxStaminaValue    int    `json:"maxStaminaValue"`
-	RecoveryValue      int    `json:"recoveryValue"`
-	RecoveryIntervalMs int64  `json:"recoveryIntervalMs"`
+	Type string `json:"type"`
+	MaxStaminaValue int `json:"maxStaminaValue"`
+	RecoveryValue int `json:"recoveryValue"`
+	RecoveryIntervalMs int64 `json:"recoveryIntervalMs"`
 }

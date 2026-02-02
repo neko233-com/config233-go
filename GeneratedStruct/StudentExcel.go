@@ -5,6 +5,6 @@ package generated
 
 // StudentExcel 配置结构体
 type StudentExcel struct {
-	Id   int64  `json:"id"`
+	Id int64 `json:"id"`
 	Name string `json:"name"`
 }

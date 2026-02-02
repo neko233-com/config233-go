@@ -5,16 +5,16 @@ package generated
 
 // ItemConfig 配置结构体
 type ItemConfig struct {
-	ItemId           int64  `json:"itemId"`
-	ItemName         string `json:"itemName"`
-	Desc             string `json:"desc"`
-	BagType          string `json:"bagType"`
-	Type             int    `json:"type"`
-	ExpireTimeMs     int64  `json:"expireTimeMs"`
-	Quality          int    `json:"quality"`
+	ItemId int64 `json:"itemId"`
+	ItemName string `json:"itemName"`
+	Desc string `json:"desc"`
+	BagType string `json:"bagType"`
+	Type int `json:"type"`
+	ExpireTimeMs int64 `json:"expireTimeMs"`
+	Quality int `json:"quality"`
 	UseConditionList string `json:"useConditionList"`
-	UseItemContext   string `json:"useItemContext"`
-	StackNumber      int    `json:"stackNumber"`
-	JumpId           int    `json:"jumpId"`
-	Sort             int    `json:"sort"`
+	UseItemContext string `json:"useItemContext"`
+	StackNumber int `json:"stackNumber"`
+	JumpId int `json:"jumpId"`
+	Sort int `json:"sort"`
 }

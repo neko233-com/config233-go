@@ -7,7 +7,7 @@ import "github.com/neko233-com/config233-go/internal/config233"
 
 // TestKvConfig 配置结构体
 type TestKvConfig struct {
-	Id    string `json:"id"`
+	Id string `json:"id"`
 	Value string `json:"value"`
 }
 
