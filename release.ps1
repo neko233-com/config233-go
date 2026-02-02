@@ -28,7 +28,7 @@ if ($LASTEXITCODE -ne 0) {
 
 # Build
 Write-Host "Building..." -ForegroundColor Yellow
-go build ./internal/config233
+go build ./pkg/config233
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Build failed"
     exit 1
