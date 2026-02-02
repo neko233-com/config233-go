@@ -282,20 +282,20 @@ func init() {
 ## 测试
 
 ### 测试文件
-- `tests/fishing_weapon_config_test.go` - 完整示例
-- `tests/type_conversion_test.go` - 类型转换测试
+- `test/fishing_weapon_config_test.go` - 完整示例
+- `test/type_conversion_test.go` - 类型转换测试
 
 ### 运行测试
 ```bash
 # 测试配置加载
-go test ./tests -run TestFishingWeaponConfig_Parse -v
+go test ./test -run TestFishingWeaponConfig_Parse -v
 
 # 测试生命周期
-go test ./tests -run TestFishingWeaponConfig_Lifecycle -v
+go test ./test -run TestFishingWeaponConfig_Lifecycle -v
 ```
 
 ## 相关文件
 
 - `pkg/config233/api_config233_lifecycle.go` - 生命周期接口定义
 - `pkg/config233/excel/handler.go` - Excel 处理器实现（字段映射 + 生命周期）
-- `tests/fishing_weapon_config_test.go` - 测试示例
+- `test/fishing_weapon_config_test.go` - 测试示例

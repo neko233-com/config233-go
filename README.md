@@ -176,7 +176,7 @@ config233-go/
 │   ├── json/               # JSON 处理器
 │   └── tsv/                # TSV 处理器
 ├── examples/               # 示例代码
-├── tests/                  # 集成测试
+├── test/                  # 集成测试
 ├── testdata/               # 测试数据
 └── GeneratedStruct/        # 生成的结构体代码
 ```

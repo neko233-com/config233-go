@@ -51,7 +51,7 @@ pkg/config233/
 - `validation_demo.go` - 配置验证示例
 - `excel_validation.go` - Excel 验证示例
 
-### 测试代码 (`tests/`)
+### 测试代码 (`test/`)
 
 单元测试和集成测试。
 
@@ -96,7 +96,7 @@ go mod download
 ### 3. 运行测试
 
 ```bash
-go test ./tests -v
+go test ./test -v
 ```
 
 ### 4. 运行示例

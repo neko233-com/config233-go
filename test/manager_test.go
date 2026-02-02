@@ -1,4 +1,4 @@
-package tests
+package test
 
 import (
 	"os"
@@ -410,7 +410,7 @@ func BenchmarkConfigManager233_LoadAllConfigs(b *testing.B) {
 // getTestDataDir 获取测试数据目录
 // 从项目根目录查找 testdata 目录
 func getTestDataDir() string {
-	// 测试运行时，当前目录是 tests
+	// 测试运行时，当前目录是 test
 	testDataPath := filepath.Join("..", "testdata")
 	if _, err := os.Stat(testDataPath); err == nil {
 		return testDataPath

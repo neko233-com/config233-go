@@ -5,7 +5,7 @@ echo 运行所有测试
 echo ========================================
 echo.
 
-REM 运行所有测试（包括 tests 目录和 pkg 目录）
+REM 运行所有测试（包括 test 目录和 pkg 目录）
 go test ./... -v
 
 if %errorlevel% equ 0 (

@@ -18,9 +18,9 @@ if ($gitStatus) {
     exit 1
 }
 
-# Run tests
-Write-Host "Running tests..." -ForegroundColor Yellow
-go test ./tests
+# Run test
+Write-Host "Running test..." -ForegroundColor Yellow
+go test ./test
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Tests failed"
     exit 1
