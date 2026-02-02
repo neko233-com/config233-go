@@ -71,7 +71,7 @@ import (
     "fmt"
     "path/filepath"
     
-    "github.com/neko233-com/config233-go/internal/config233"
+    "github.com/neko233-com/config233-go/pkg/config233"
 )
 
 // ItemConfig 物品配置
