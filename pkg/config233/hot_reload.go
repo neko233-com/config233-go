@@ -185,6 +185,8 @@ func (cm *ConfigManager233) batchReloadConfigs(configNames []string) {
 			copy(configsCopy, successConfigs)
 			manager.OnConfigLoadComplete(configsCopy)
 		}
+		// 更新最后一次加载配置的时间戳
+		cm.lastLoadTimeMs.Store(time.Now().UnixMilli())
 	}
 
 	getLogger().Info("批量重载完成", "total", len(configNames), "success", successCount, "failed", len(configNames)-successCount)

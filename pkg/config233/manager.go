@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -31,6 +32,7 @@ type ConfigManager233 struct {
 	registerTypeMu   sync.RWMutex                      // 保护 registeredTypes
 	isStarted        atomic.Bool                       // 是否已启动，启动后不允许修改配置目录
 	isFirstLoadDone  atomic.Bool                       // 首次加载是否完成
+	lastLoadTimeMs   atomic.Int64                      // 最后一次加载配置的时间戳（毫秒）
 
 	// 导出配置相关
 	loadDoneWriteConfigFileDir string // 导出配置文件的目录
@@ -167,6 +169,14 @@ func (cm *ConfigManager233) SetLoadDoneWriteConfigFileDir(dir string) *ConfigMan
 // GetLoadDoneWriteConfigFileDir 获取加载完成后导出配置文件的目录
 func (cm *ConfigManager233) GetLoadDoneWriteConfigFileDir() string {
 	return cm.loadDoneWriteConfigFileDir
+}
+
+// GetLastLoadTimeMs 获取最后一次加载配置的时间戳（毫秒）
+// 返回值:
+//
+//	int64: Unix 时间戳（毫秒），如果从未加载过则返回 0
+func (cm *ConfigManager233) GetLastLoadTimeMs() int64 {
+	return cm.lastLoadTimeMs.Load()
 }
 
 // SetIsOpenWriteTempFileToSeeMemoryConfig 设置是否开启导出内存配置到文件的功能
@@ -674,6 +684,9 @@ func (cm *ConfigManager233) LoadAllConfigs() error {
 		}
 		getLogger().Info("首次配置加载完成，已通知所有业务管理器")
 	}
+
+	// 更新最后一次加载配置的时间戳
+	cm.lastLoadTimeMs.Store(time.Now().UnixMilli())
 
 	return nil
 }
