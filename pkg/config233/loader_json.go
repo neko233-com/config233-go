@@ -83,6 +83,9 @@ func (cm *ConfigManager233) loadJsonConfigThreadSafe(filePath string) error {
 
 	getLogger().Info("JSON配置加载完成", "configName", fileName, "count", len(slice))
 
+	// 导出配置到文件（如果开启）
+	cm.ExportConfigToJSON(fileName, slice)
+
 	return nil
 }
 

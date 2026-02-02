@@ -72,6 +72,9 @@ func (cm *ConfigManager233) loadTsvConfigThreadSafe(filePath string) error {
 	// 更新缓存（内部已有锁保护）
 	cm.setConfigCache(fileName, configMap, slice)
 
+	// 导出配置到文件（如果开启）
+	cm.ExportConfigToJSON(fileName, slice)
+
 	return nil
 }
 

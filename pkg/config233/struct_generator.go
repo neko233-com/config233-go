@@ -90,7 +90,7 @@ func (g *StructGenerator) GenerateFromExcel(excelPath string) error {
 	}
 
 	// 写入文件
-	outputPath := filepath.Join(g.outputDir, strings.ToLower(configName)+".go")
+	outputPath := filepath.Join(g.outputDir, configName+".go")
 	if err := os.WriteFile(outputPath, []byte(code), 0644); err != nil {
 		return fmt.Errorf("写入文件失败: %w", err)
 	}
@@ -157,14 +157,9 @@ func (g *StructGenerator) excelTypeToGoType(excelType string) string {
 	}
 }
 
-// toStructName 将配置名转为 struct 名（首字母大写）
+// toStructName 将配置名转为 struct 名（完全保持配置名大小写，无视 Go 导出规范）
 func (g *StructGenerator) toStructName(name string) string {
-	if len(name) == 0 {
-		return name
-	}
-	runes := []rune(name)
-	runes[0] = unicode.ToUpper(runes[0])
-	return string(runes)
+	return name
 }
 
 // toFieldName 将字段名转为 Go 字段名（首字母大写）

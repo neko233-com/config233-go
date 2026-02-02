@@ -1,6 +1,7 @@
 package config233
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,6 +31,10 @@ type ConfigManager233 struct {
 	registerTypeMu   sync.RWMutex                      // 保护 registeredTypes
 	isStarted        atomic.Bool                       // 是否已启动，启动后不允许修改配置目录
 	isFirstLoadDone  atomic.Bool                       // 首次加载是否完成
+
+	// 导出配置相关
+	loadDoneWriteConfigFileDir string // 导出配置文件的目录
+	isOpenWriteTempFile        bool   // 是否开启导出功能
 }
 
 var (
@@ -150,6 +155,54 @@ func NewConfigManager233(configDir string) *ConfigManager233 {
 		manager.SetConfigDir(configDir)
 	}
 	return manager
+}
+
+// SetLoadDoneWriteConfigFileDir 设置加载完成后导出配置文件的目录
+// 支持相对路径和绝对路径
+func (cm *ConfigManager233) SetLoadDoneWriteConfigFileDir(dir string) *ConfigManager233 {
+	cm.loadDoneWriteConfigFileDir = dir
+	return cm
+}
+
+// GetLoadDoneWriteConfigFileDir 获取加载完成后导出配置文件的目录
+func (cm *ConfigManager233) GetLoadDoneWriteConfigFileDir() string {
+	return cm.loadDoneWriteConfigFileDir
+}
+
+// SetIsOpenWriteTempFileToSeeMemoryConfig 设置是否开启导出内存配置到文件的功能
+// 开启后，每次加载或重载配置后，会将内存中的配置导出为 JSON 文件
+func (cm *ConfigManager233) SetIsOpenWriteTempFileToSeeMemoryConfig(isOpen bool) *ConfigManager233 {
+	cm.isOpenWriteTempFile = isOpen
+	return cm
+}
+
+// ExportConfigToJSON 将指定配置导出为 JSON 文件
+func (cm *ConfigManager233) ExportConfigToJSON(configName string, data interface{}) {
+	if !cm.isOpenWriteTempFile || cm.loadDoneWriteConfigFileDir == "" {
+		return
+	}
+
+	// 确保目录存在
+	if err := os.MkdirAll(cm.loadDoneWriteConfigFileDir, 0755); err != nil {
+		getLogger().Error(err, "创建导出目录失败", "dir", cm.loadDoneWriteConfigFileDir)
+		return
+	}
+
+	// 序列化
+	jsonBytes, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		getLogger().Error(err, "序列化配置失败", "configName", configName)
+		return
+	}
+
+	// 写入文件
+	filePath := filepath.Join(cm.loadDoneWriteConfigFileDir, configName+".json")
+	if err := os.WriteFile(filePath, jsonBytes, 0644); err != nil {
+		getLogger().Error(err, "写入配置文件失败", "path", filePath)
+		return
+	}
+
+	getLogger().Info("已导出配置到文件", "configName", configName, "path", filePath)
 }
 
 // RegisterType 注册配置结构体类型，用于将加载的配置数据自动转换为指定类型

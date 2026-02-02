@@ -5,6 +5,9 @@
 *.so
 *.dylib
 
+# 临时检查
+TempCheck/
+
 # Example binaries
 examples/*.exe
 examples/*.out

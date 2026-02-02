@@ -75,6 +75,9 @@ func (cm *ConfigManager233) loadExcelConfigThreadSafe(filePath string) error {
 
 	getLogger().Info("Excel配置加载完成", "configName", fileName, "count", len(slice))
 
+	// 导出配置到文件（如果开启）
+	cm.ExportConfigToJSON(fileName, slice)
+
 	return nil
 }
 
