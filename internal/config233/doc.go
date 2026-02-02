@@ -12,7 +12,7 @@
 //
 // 使用 ConfigManager233（推荐的简化API）:
 //
-//	import "github.com/neko233-com/config233-go/pkg/config233"
+//	import "github.com/neko233-com/config233-go/internal/config233"
 //
 //	// 初始化全局配置管理器
 //	manager := config233.GetInstance()
@@ -27,7 +27,7 @@
 //
 // 使用 Config233（完整功能API）:
 //
-//	import "github.com/neko233-com/config233-go/pkg/config233"
+//	import "github.com/neko233-com/config233-go/internal/config233"
 //
 //	// 创建配置实例
 //	cfg := config233.NewConfig233().

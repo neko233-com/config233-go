@@ -209,7 +209,7 @@ func (g *StructGenerator) generateStructCode(structName, configName string, fiel
 			}
 		}
 		if valueField != "" {
-			sb.WriteString("import \"github.com/neko233-com/config233-go/pkg/config233\"\n\n")
+			sb.WriteString("import \"github.com/neko233-com/config233-go/internal/config233\"\n\n")
 		}
 	}
 
@@ -278,7 +278,7 @@ func (g *StructGenerator) generateStructCodeWithImport(structName, configName st
 	sb.WriteString("package generated\n\n")
 	sb.WriteString("import (\n")
 	sb.WriteString("\t\"strconv\"\n\n")
-	sb.WriteString("\t\"github.com/neko233-com/config233-go/pkg/config233\"\n")
+	sb.WriteString("\t\"github.com/neko233-com/config233-go/internal/config233\"\n")
 	sb.WriteString(")\n\n")
 
 	// 生成 struct

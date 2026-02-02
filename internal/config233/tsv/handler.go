@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/neko233-com/config233-go/pkg/config233/dto"
+	"github.com/neko233-com/config233-go/internal/config233/dto"
 )
 
 // TsvConfigHandler TSV 配置处理器

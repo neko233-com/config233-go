@@ -11,7 +11,7 @@
 ```go
 import (
     "fmt"
-    "github.com/neko233-com/config233-go/pkg/config233"
+    "github.com/neko233-com/config233-go/internal/config233"
 )
 
 func init() {

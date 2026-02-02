@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/neko233-com/config233-go/pkg/config233"
+	"github.com/neko233-com/config233-go/internal/config233"
 )
 
 // ItemConfig 示例配置结构

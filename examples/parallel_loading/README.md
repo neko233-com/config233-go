@@ -52,24 +52,24 @@ go run main.go
 package main
 
 import (
-    "github.com/neko233-com/config233-go/pkg/config233"
+	"github.com/neko233-com/config233-go/internal/config233"
 )
 
 func main() {
-    // 1. 获取全局单例
-    manager := config233.GetInstance()
-    
-    // 2. 设置配置目录
-    manager.SetConfigDir("./config")
-    
-    // 3. 注册配置类型（可选）
-    config233.RegisterType[ItemConfig]()
-    
-    // 4. 启动管理器（自动并行加载）
-    manager.Start()
-    
-    // 5. 使用配置
-    item := config233.GetConfigById[ItemConfig]("1001")
+	// 1. 获取全局单例
+	manager := config233.GetInstance()
+
+	// 2. 设置配置目录
+	manager.SetConfigDir("./config")
+
+	// 3. 注册配置类型（可选）
+	config233.RegisterType[ItemConfig]()
+
+	// 4. 启动管理器（自动并行加载）
+	manager.Start()
+
+	// 5. 使用配置
+	item := config233.GetConfigById[ItemConfig]("1001")
 }
 ```
 

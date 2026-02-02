@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	config233 "github.com/neko233-com/config233-go/pkg/config233"
-	"github.com/neko233-com/config233-go/pkg/config233/dto"
-	"github.com/neko233-com/config233-go/pkg/config233/excel"
+	config233 "github.com/neko233-com/config233-go/internal/config233"
+	"github.com/neko233-com/config233-go/internal/config233/dto"
+	"github.com/neko233-com/config233-go/internal/config233/excel"
 )
 
 // FishingWeaponConfig 对应 testdata/FishingWeaponConfig.xlsx（使用 Server 行作为字段名）

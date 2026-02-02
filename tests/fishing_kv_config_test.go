@@ -4,18 +4,19 @@ import (
 	"testing"
 
 	generated "github.com/neko233-com/config233-go/GeneratedStruct"
-	"github.com/neko233-com/config233-go/pkg/config233"
+	"github.com/neko233-com/config233-go/internal/config233"
 )
 
 // TestFishingKvConfig_GetKvApis
 // 使用实际的 FishingKvConfig.xlsx 做 KV 配置测试
 //
 // Excel 内容参考：
-//  id                           value
-//  autoAttackIntervalTimeSecond 1
-//  test_int                     1
-//  test_string                  TestValue
-//  test_bool                    TRUE
+//
+//	id                           value
+//	autoAttackIntervalTimeSecond 1
+//	test_int                     1
+//	test_string                  TestValue
+//	test_bool                    TRUE
 func TestFishingKvConfig_GetKvApis(t *testing.T) {
 	testDir := getTestDataDir()
 

@@ -136,5 +136,5 @@ if ($LASTEXITCODE -eq 0 -and $githubRemote) {
 
 Write-Host ""
 Write-Host "Release $Version completed successfully!" -ForegroundColor Green
-Write-Host "The module will be available at: https://pkg.go.dev/github.com/neko233-com/config233-go@$Version"
+Write-Host "The module will be available at: https://internal.go.dev/github.com/neko233-com/config233-go@$Version"
 Write-Host ""

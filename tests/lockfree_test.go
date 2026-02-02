@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/neko233-com/config233-go/pkg/config233"
+	"github.com/neko233-com/config233-go/internal/config233"
 )
 
 // TestLockFreeConcurrentWrites 测试无锁并发写入

@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	config233 "github.com/neko233-com/config233-go/pkg/config233"
+	config233 "github.com/neko233-com/config233-go/internal/config233"
 )
 
 // InvalidTypeConfig 用于测试类型转换错误输出

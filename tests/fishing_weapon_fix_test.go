@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	config233 "github.com/neko233-com/config233-go/pkg/config233"
+	config233 "github.com/neko233-com/config233-go/internal/config233"
 )
 
 // FishingWeaponConfigFix 对应 testdata/FishingWeaponConfig.xlsx

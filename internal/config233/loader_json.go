@@ -5,14 +5,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/neko233-com/config233-go/pkg/config233/dto"
-	"github.com/neko233-com/config233-go/pkg/config233/tsv"
+	"github.com/neko233-com/config233-go/internal/config233/dto"
+	jsonhandler "github.com/neko233-com/config233-go/internal/config233/json"
 )
 
-// loadTsvConfigThreadSafe 线程安全的 TSV 配置加载（用于并行加载）
-func (cm *ConfigManager233) loadTsvConfigThreadSafe(filePath string) error {
-	// 创建 TSV 处理器
-	handler := &tsv.TsvConfigHandler{}
+// loadJsonConfigThreadSafe 线程安全的 JSON 配置加载（用于并行加载）
+func (cm *ConfigManager233) loadJsonConfigThreadSafe(filePath string) error {
+	// 创建 JSON 处理器
+	handler := &jsonhandler.JsonConfigHandler{}
 
 	// 获取文件名（不含扩展名）作为配置名
 	fileName := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
@@ -26,18 +26,28 @@ func (cm *ConfigManager233) loadTsvConfigThreadSafe(filePath string) error {
 	// 转换为配置映射
 	configMap := make(map[string]interface{})
 	for _, item := range configDto.DataList {
-		// 使用第一列作为 ID（如果存在的话）
+		// 尝试从 map 中提取 ID（支持 "id", "ID", "Id" 等字段）
 		var id string
-		for _, v := range item {
-			if id == "" {
-				if str, ok := v.(string); ok {
-					id = str
-				} else {
-					id = fmt.Sprintf("%v", v)
-				}
+		if idVal, ok := item["id"]; ok {
+			if str, ok := idVal.(string); ok {
+				id = str
+			} else {
+				id = fmt.Sprintf("%v", idVal)
 			}
-			break
+		} else if idVal, ok := item["ID"]; ok {
+			if str, ok := idVal.(string); ok {
+				id = str
+			} else {
+				id = fmt.Sprintf("%v", idVal)
+			}
+		} else if idVal, ok := item["Id"]; ok {
+			if str, ok := idVal.(string); ok {
+				id = str
+			} else {
+				id = fmt.Sprintf("%v", idVal)
+			}
 		}
+
 		if id != "" {
 			// 如果有注册的类型，转换为具体结构体
 			if converted, err := cm.convertMapToRegisteredStruct(fileName, item); err == nil {
@@ -55,11 +65,10 @@ func (cm *ConfigManager233) loadTsvConfigThreadSafe(filePath string) error {
 		// 尝试转换为注册的结构体类型
 		if converted, err := cm.convertMapToRegisteredStruct(fileName, v); err == nil {
 			slice[i] = converted
-			getLogger().Info("成功转换TSV配置项", "index", i, "configName", fileName, "itemId", v["itemId"])
 		} else {
 			// 转换失败则使用原始 map
 			slice[i] = v
-			getLogger().Error(err, "转换TSV配置项失败", "index", i, "configName", fileName, "data", v)
+			getLogger().Error(err, "转换JSON配置项失败", "index", i, "configName", fileName, "data", v)
 		}
 	}
 
@@ -72,22 +81,24 @@ func (cm *ConfigManager233) loadTsvConfigThreadSafe(filePath string) error {
 	// 更新缓存（内部已有锁保护）
 	cm.setConfigCache(fileName, configMap, slice)
 
+	getLogger().Info("JSON配置加载完成", "configName", fileName, "count", len(slice))
+
 	// 导出配置到文件（如果开启）
 	cm.ExportConfigToJSON(fileName, slice)
 
 	return nil
 }
 
-// loadTsvConfig 从TSV文件加载配置
-// 使用 TSV 处理器读取并解析 TSV 配置文件
+// loadJsonConfig 从JSON文件加载配置
+// 使用 JSON 处理器读取并解析 JSON 配置文件
 // 参数:
 //
-//	filePath: TSV 配置文件的路径
+//	filePath: JSON 配置文件的路径
 //
 // 返回值:
 //
 //	error: 加载过程中的错误
-func (cm *ConfigManager233) loadTsvConfig(filePath string) error {
+func (cm *ConfigManager233) loadJsonConfig(filePath string) error {
 	// 直接调用线程安全版本
-	return cm.loadTsvConfigThreadSafe(filePath)
+	return cm.loadJsonConfigThreadSafe(filePath)
 }
