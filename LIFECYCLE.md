@@ -162,7 +162,7 @@ package gameconfig
 
 import (
     "fmt"
-    config233 "github.com/neko233-com/config233-go/internal/config233"
+    config233 "github.com/neko233-com/config233-go/pkg/config233"
 )
 
 // WeaponConfig 武器配置

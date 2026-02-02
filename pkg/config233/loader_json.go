@@ -5,14 +5,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/neko233-com/config233-go/internal/config233/dto"
-	"github.com/neko233-com/config233-go/internal/config233/excel"
+	"github.com/neko233-com/config233-go/pkg/config233/dto"
+	jsonhandler "github.com/neko233-com/config233-go/pkg/config233/json"
 )
 
-// loadExcelConfigThreadSafe 线程安全的 Excel 配置加载（用于并行加载）
-func (cm *ConfigManager233) loadExcelConfigThreadSafe(filePath string) error {
-	// 创建 Excel 处理器
-	handler := &excel.ExcelConfigHandler{}
+// loadJsonConfigThreadSafe 线程安全的 JSON 配置加载（用于并行加载）
+func (cm *ConfigManager233) loadJsonConfigThreadSafe(filePath string) error {
+	// 创建 JSON 处理器
+	handler := &jsonhandler.JsonConfigHandler{}
 
 	// 获取文件名（不含扩展名）作为配置名
 	fileName := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
@@ -26,17 +26,26 @@ func (cm *ConfigManager233) loadExcelConfigThreadSafe(filePath string) error {
 	// 转换为配置映射
 	configMap := make(map[string]interface{})
 	for _, item := range configDto.DataList {
-		// 优先使用 id/ID/Id 字段作为配置 ID
+		// 尝试从 map 中提取 ID（支持 "id", "ID", "Id" 等字段）
 		var id string
-		if idVal, ok := item["id"]; ok && idVal != "" {
-			id = fmt.Sprintf("%v", idVal)
-		} else if idVal, ok := item["ID"]; ok && idVal != "" {
-			id = fmt.Sprintf("%v", idVal)
-		} else if idVal, ok := item["Id"]; ok && idVal != "" {
-			id = fmt.Sprintf("%v", idVal)
-		} else if idVal, ok := item["itemId"]; ok && idVal != "" {
-			// 兼容 itemId 字段
-			id = fmt.Sprintf("%v", idVal)
+		if idVal, ok := item["id"]; ok {
+			if str, ok := idVal.(string); ok {
+				id = str
+			} else {
+				id = fmt.Sprintf("%v", idVal)
+			}
+		} else if idVal, ok := item["ID"]; ok {
+			if str, ok := idVal.(string); ok {
+				id = str
+			} else {
+				id = fmt.Sprintf("%v", idVal)
+			}
+		} else if idVal, ok := item["Id"]; ok {
+			if str, ok := idVal.(string); ok {
+				id = str
+			} else {
+				id = fmt.Sprintf("%v", idVal)
+			}
 		}
 
 		if id != "" {
@@ -46,7 +55,6 @@ func (cm *ConfigManager233) loadExcelConfigThreadSafe(filePath string) error {
 			} else {
 				// 转换失败则使用原始 map
 				configMap[id] = item
-				getLogger().Error(err, "转换配置项失败", "index", -1, "configName", fileName, "data", item)
 			}
 		}
 	}
@@ -60,7 +68,7 @@ func (cm *ConfigManager233) loadExcelConfigThreadSafe(filePath string) error {
 		} else {
 			// 转换失败则使用原始 map
 			slice[i] = v
-			getLogger().Error(err, "转换配置项失败", "index", i, "configName", fileName, "data", v)
+			getLogger().Error(err, "转换JSON配置项失败", "index", i, "configName", fileName, "data", v)
 		}
 	}
 
@@ -73,7 +81,7 @@ func (cm *ConfigManager233) loadExcelConfigThreadSafe(filePath string) error {
 	// 更新缓存（内部已有锁保护）
 	cm.setConfigCache(fileName, configMap, slice)
 
-	getLogger().Info("Excel配置加载完成", "configName", fileName, "count", len(slice))
+	getLogger().Info("JSON配置加载完成", "configName", fileName, "count", len(slice))
 
 	// 导出配置到文件（如果开启）
 	cm.ExportConfigToJSON(fileName, slice)
@@ -81,16 +89,16 @@ func (cm *ConfigManager233) loadExcelConfigThreadSafe(filePath string) error {
 	return nil
 }
 
-// loadExcelConfig 从Excel文件加载配置
-// 使用 Excel 处理器读取并解析 Excel 配置文件
+// loadJsonConfig 从JSON文件加载配置
+// 使用 JSON 处理器读取并解析 JSON 配置文件
 // 参数:
 //
-//	filePath: Excel 配置文件的路径
+//	filePath: JSON 配置文件的路径
 //
 // 返回值:
 //
 //	error: 加载过程中的错误
-func (cm *ConfigManager233) loadExcelConfig(filePath string) error {
+func (cm *ConfigManager233) loadJsonConfig(filePath string) error {
 	// 直接调用线程安全版本
-	return cm.loadExcelConfigThreadSafe(filePath)
+	return cm.loadJsonConfigThreadSafe(filePath)
 }

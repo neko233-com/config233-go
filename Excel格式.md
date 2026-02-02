@@ -76,7 +76,7 @@ config233 支持从 Excel 文件自动生成 Go struct 代码。
 ### 使用方法
 
 ```go
-import "github.com/neko233-com/config233-go/internal/config233"
+import "github.com/neko233-com/config233-go/pkg/config233"
 
 // 从单个 Excel 文件生成
 err := config233.GenerateStructFromExcel("path/to/config.xlsx", "output/dir")
@@ -136,7 +136,7 @@ func (c *TestKvConfig) GetValue() string {
 ### 使用 KV 配置
 
 ```go
-import "github.com/neko233-com/config233-go/internal/config233"
+import "github.com/neko233-com/config233-go/pkg/config233"
 
 // 注册类型
 config233.RegisterType[TestKvConfig]()

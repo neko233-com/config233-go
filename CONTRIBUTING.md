@@ -109,7 +109,7 @@ go run example_usage.go
 ### 5. 构建
 
 ```bash
-go build ./internal/config233
+go build ./pkg/config233
 ```
 
 ## 提交代码

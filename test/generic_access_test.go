@@ -3,7 +3,7 @@ package test
 import (
 	"testing"
 
-	config233 "github.com/neko233-com/config233-go/internal/config233"
+	config233 "github.com/neko233-com/config233-go/pkg/config233"
 )
 
 func TestGenericAccess_ItemConfig(t *testing.T) {

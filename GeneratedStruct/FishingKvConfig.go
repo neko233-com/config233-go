@@ -3,11 +3,11 @@
 
 package generated
 
-import "github.com/neko233-com/config233-go/internal/config233"
+import "github.com/neko233-com/config233-go/pkg/config233"
 
 // FishingKvConfig 配置结构体
 type FishingKvConfig struct {
-	Id string `json:"id"`
+	Id    string `json:"id"`
 	Value string `json:"value"`
 }
 

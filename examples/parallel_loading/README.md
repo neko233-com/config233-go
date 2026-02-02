@@ -52,7 +52,7 @@ go run main.go
 package main
 
 import (
-	"github.com/neko233-com/config233-go/internal/config233"
+	"github.com/neko233-com/config233-go/pkg/config233"
 )
 
 func main() {

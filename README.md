@@ -31,7 +31,7 @@ go get github.com/neko233-com/config233-go
 ConfigManager233 提供了更简单的全局配置管理接口：
 
 ```go
-import "github.com/neko233-com/config233-go/internal/config233"
+import "github.com/neko233-com/config233-go/pkg/config233"
 
 // 1. 注册配置类型
 config233.RegisterType[Student]()
@@ -148,7 +148,7 @@ go test ./... -v
 
 运行性能基准测试：
 ```bash
-go test ./internal/config233 -bench=. -benchmem
+go test ./pkg/config233 -bench=. -benchmem
 ```
 
 测试覆盖的场景：
@@ -250,7 +250,7 @@ type IKvConfig interface {
 Config233-Go 支持 logr 接口，可以集成各种日志库：
 
 ```go
-import "config233-go/internal/config233"
+import "config233-go/pkg/config233"
 
 // 设置自定义日志器
 config233.SetLogger(yourLogrLogger)

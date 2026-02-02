@@ -78,7 +78,7 @@ func (c *Config233) Directory(dirPath string) *Config233 {
 }
 
 // ScanPackage 设置要扫描的包名（Go中暂未使用，保持与Kotlin版本兼容）
-// internal: 包名
+// pkg: 包名
 // 返回Config233实例支持链式调用
 func (c *Config233) ScanPackage(pkg string) *Config233 {
 	c.scanPackage = pkg

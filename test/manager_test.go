@@ -6,11 +6,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/neko233-com/config233-go/internal/config233"
-	"github.com/neko233-com/config233-go/internal/config233/dto"
-	"github.com/neko233-com/config233-go/internal/config233/excel"
-	"github.com/neko233-com/config233-go/internal/config233/json"
-	"github.com/neko233-com/config233-go/internal/config233/tsv"
+	"github.com/neko233-com/config233-go/pkg/config233"
+	"github.com/neko233-com/config233-go/pkg/config233/dto"
+	"github.com/neko233-com/config233-go/pkg/config233/excel"
+	"github.com/neko233-com/config233-go/pkg/config233/json"
+	"github.com/neko233-com/config233-go/pkg/config233/tsv"
 )
 
 // TestConfigManager233_GetConfigById 测试配置管理器的 GetConfigById 方法

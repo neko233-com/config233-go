@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/neko233-com/config233-go/internal/config233"
+	"github.com/neko233-com/config233-go/pkg/config233"
 
 	"github.com/go-logr/logr"
 )

@@ -3,7 +3,7 @@ package test
 import (
 	"testing"
 
-	"github.com/neko233-com/config233-go/internal/config233"
+	"github.com/neko233-com/config233-go/pkg/config233"
 )
 
 // BenchmarkParallelLoading 测试并行加载性能
