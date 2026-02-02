@@ -30,7 +30,7 @@ go.work
 
 # Test output directories
 CheckOutput/
-GeneratedStruct/
+#GeneratedStruct/
 *.swp
 *.swo
 
@@ -45,7 +45,7 @@ GeneratedStruct/
 CheckOutput/
 
 # Generated struct code directory
-GeneratedStruct/
+#GeneratedStruct/
 ehthumbs.db
 Thumbs.db
 

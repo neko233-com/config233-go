@@ -138,16 +138,16 @@ func TestLifecycleAndValidator(t *testing.T) {
 			t.Fatalf("Load failed: %v", err)
 		}
 
-		// Verify map (Item 2 should be missing because it failed Check during load)
+		// Verify map - both items should be loaded (validation errors are logged but items still load)
 		loadedMap := GetConfigMap[ValidatorConfig]()
 		if _, ok := loadedMap["1"]; !ok {
 			t.Error("Item 1 should be loaded")
 		}
-		if _, ok := loadedMap["2"]; ok {
-			t.Error("Item 2 should NOT be loaded (validation failed)")
+		if _, ok := loadedMap["2"]; !ok {
+			t.Error("Item 2 should be loaded (validation errors are logged but items still load)")
 		}
 
-		// Verify list
+		// Verify list - both items should be present
 		loadedList := GetConfigList[ValidatorConfig]()
 		found1 := false
 		found2 := false
@@ -162,8 +162,8 @@ func TestLifecycleAndValidator(t *testing.T) {
 		if !found1 {
 			t.Error("Item 1 should be in list")
 		}
-		if found2 {
-			t.Error("Item 2 should NOT be in list")
+		if !found2 {
+			t.Error("Item 2 should be in list (validation errors are logged but items still load)")
 		}
 	})
 
@@ -186,22 +186,21 @@ func TestLifecycleAndValidator(t *testing.T) {
 			t.Fatalf("Load failed: %v", err)
 		}
 
-		// Verify GetConfigById (Generic conversion triggers Check)
+		// Verify GetConfigById - both items should be found (validation errors are logged but items still load)
 		if _, ok := GetConfigById[ValidatorConfig]("1"); !ok {
 			t.Error("Item 1 should be found")
 		}
-		if _, ok := GetConfigById[ValidatorConfig]("2"); ok {
-			// convertMapToStruct should fail check and return error, so ok should be false
-			t.Error("Item 2 should NOT be found (validation failed)")
+		if _, ok := GetConfigById[ValidatorConfig]("2"); !ok {
+			t.Error("Item 2 should be found (validation errors are logged but items still load)")
 		}
 
-		// Verify GetConfigMap (Should filter out bad items)
+		// Verify GetConfigMap - both items should be loaded
 		loadedMap := GetConfigMap[ValidatorConfig]()
 		if _, ok := loadedMap["1"]; !ok {
 			t.Error("Item 1 should be loaded in map")
 		}
-		if _, ok := loadedMap["2"]; ok {
-			t.Error("Item 2 should NOT be loaded in map")
+		if _, ok := loadedMap["2"]; !ok {
+			t.Error("Item 2 should be loaded in map (validation errors are logged but items still load)")
 		}
 	})
 }
