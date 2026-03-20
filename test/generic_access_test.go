@@ -28,4 +28,12 @@ func TestGenericAccess_ItemConfig(t *testing.T) {
 	if len(list) == 0 {
 		t.Fatalf("expected non-empty ItemConfig list")
 	}
+
+	if count := config233.GetConfigListCount[ItemConfig](); count != len(list) {
+		t.Fatalf("expected list count to match len(list), got count=%d len=%d", count, len(list))
+	}
+
+	if count := config233.GetConfigListCount[struct{ Missing bool }](); count != 0 {
+		t.Fatalf("expected unloaded config count to be 0, got %d", count)
+	}
 }

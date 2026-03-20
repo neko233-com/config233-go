@@ -36,7 +36,8 @@
 //	    Start()
 //
 //	// 获取配置列表
-//	students := config233.GetConfigList[Student](cfg)
+//	students := config233.GetConfigList[Student]()
+//	count := config233.GetConfigListCount[Student]()
 //
 // # 配置文件格式
 //

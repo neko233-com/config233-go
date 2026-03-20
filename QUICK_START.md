@@ -175,7 +175,8 @@ cfg := config233.NewConfig233().
     Start()
 
 // 获取配置列表
-students := config233.GetConfigList[Student](cfg)
+students := config233.GetConfigList[Student]()
+studentCount := config233.GetConfigListCount[Student]()
 ```
 
 ### 代码生成（自动生成结构体）

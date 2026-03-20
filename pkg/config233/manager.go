@@ -938,6 +938,38 @@ func typeNameOf[T any]() string {
 	return typ.Name()
 }
 
+// getGlobalSliceCache 安全读取全局切片缓存
+func getGlobalSliceCache(cm *ConfigManager233) map[string][]interface{} {
+	if cm == nil {
+		return nil
+	}
+	loaded := cm.globalSlices.Load()
+	if loaded == nil {
+		return nil
+	}
+	slicesPtr, ok := loaded.(*map[string][]interface{})
+	if !ok || slicesPtr == nil {
+		return nil
+	}
+	return *slicesPtr
+}
+
+// getGlobalIdMapCache 安全读取全局 ID 映射缓存
+func getGlobalIdMapCache(cm *ConfigManager233) map[string]map[string]interface{} {
+	if cm == nil {
+		return nil
+	}
+	loaded := cm.globalIdMaps.Load()
+	if loaded == nil {
+		return nil
+	}
+	idMapsPtr, ok := loaded.(*map[string]map[string]interface{})
+	if !ok || idMapsPtr == nil {
+		return nil
+	}
+	return *idMapsPtr
+}
+
 // convertMapToStruct 将 map[string]interface{} 转换为指定的 struct 类型
 // 使用 config233_column tag 来映射字段，如果没有则使用字段名匹配
 func convertMapToStruct[T any](data map[string]interface{}) (*T, error) {
@@ -1073,8 +1105,10 @@ func GetConfigList[T any]() []*T {
 	configName := typeNameOf[T]()
 
 	// Lock-Free
-	slicesPtr := cm.globalSlices.Load().(*map[string][]interface{})
-	slices := *slicesPtr
+	slices := getGlobalSliceCache(cm)
+	if slices == nil {
+		return nil
+	}
 	slice, exists := slices[configName]
 
 	if !exists {
@@ -1089,6 +1123,25 @@ func GetConfigList[T any]() []*T {
 	return result
 }
 
+// GetConfigListCount 获取某类型配置列表的数量（纯泛型）
+// 只读取缓存中的切片长度，不做结构体转换，避免重复触发生命周期回调
+func GetConfigListCount[T any]() int {
+	cm := GetInstance()
+	configName := typeNameOf[T]()
+
+	// Lock-Free
+	slices := getGlobalSliceCache(cm)
+	if slices == nil {
+		return 0
+	}
+	slice, exists := slices[configName]
+	if !exists {
+		return 0
+	}
+
+	return len(slice)
+}
+
 // GetConfigMap 获取某类型的配置映射（纯泛型）
 // 返回 map[string]*T，其中 key 是配置的 ID
 func GetConfigMap[T any]() map[string]*T {
@@ -1096,8 +1149,10 @@ func GetConfigMap[T any]() map[string]*T {
 	configName := typeNameOf[T]()
 
 	// Lock-Free
-	idMapsPtr := cm.globalIdMaps.Load().(*map[string]map[string]interface{})
-	idMaps := *idMapsPtr
+	idMaps := getGlobalIdMapCache(cm)
+	if idMaps == nil {
+		return nil
+	}
 	idMap, exists := idMaps[configName]
 
 	if !exists {

@@ -293,8 +293,8 @@ student, exists := config233.GetConfigById[Student]("1")
 // 获取配置映射
 studentMap := config233.GetConfigMap[Student]()
 
-// 使用 Config233（完整功能）
-students := config233.GetConfigList[Student](cfg)
+// 获取数量（避免外部再写 len(config233.GetConfigList[Student]())）
+studentCount := config233.GetConfigListCount[Student]()
 ```
 
 ### 4. 热更新注册
