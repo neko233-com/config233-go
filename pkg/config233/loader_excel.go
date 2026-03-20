@@ -23,10 +23,18 @@ func (cm *ConfigManager233) loadExcelConfigThreadSafe(filePath string) error {
 		return nil // 空文件，跳过
 	}
 
-	// 转换为配置映射
+	// 转换为配置映射与切片（每条数据只转换一次，避免 AfterLoad 重复触发）
 	configMap := make(map[string]interface{})
-	for _, item := range configDto.DataList {
-		// 优先使用 id/ID/Id 字段作为配置 ID
+	slice := make([]interface{}, 0, len(configDto.DataList))
+	for i, item := range configDto.DataList {
+		converted := any(item)
+		if c, err := cm.convertMapToRegisteredStruct(fileName, item); err == nil {
+			converted = c
+		} else {
+			getLogger().Error(err, "转换配置项失败", "index", i, "configName", fileName, "data", item)
+		}
+
+		// 优先使用 id/ID/Id/itemId 字段作为配置 ID
 		var id string
 		if idVal, ok := item["id"]; ok && idVal != "" {
 			id = fmt.Sprintf("%v", idVal)
@@ -35,33 +43,13 @@ func (cm *ConfigManager233) loadExcelConfigThreadSafe(filePath string) error {
 		} else if idVal, ok := item["Id"]; ok && idVal != "" {
 			id = fmt.Sprintf("%v", idVal)
 		} else if idVal, ok := item["itemId"]; ok && idVal != "" {
-			// 兼容 itemId 字段
 			id = fmt.Sprintf("%v", idVal)
 		}
-
 		if id != "" {
-			// 如果有注册的类型，转换为具体结构体
-			if converted, err := cm.convertMapToRegisteredStruct(fileName, item); err == nil {
-				configMap[id] = converted
-			} else {
-				// 转换失败则使用原始 map
-				configMap[id] = item
-				getLogger().Error(err, "转换配置项失败", "index", -1, "configName", fileName, "data", item)
-			}
+			configMap[id] = converted
 		}
-	}
 
-	// Convert to []interface{}
-	slice := make([]interface{}, len(configDto.DataList))
-	for i, v := range configDto.DataList {
-		// 尝试转换为注册的结构体类型
-		if converted, err := cm.convertMapToRegisteredStruct(fileName, v); err == nil {
-			slice[i] = converted
-		} else {
-			// 转换失败则使用原始 map
-			slice[i] = v
-			getLogger().Error(err, "转换配置项失败", "index", i, "configName", fileName, "data", v)
-		}
+		slice = append(slice, converted)
 	}
 
 	// 加锁更新共享数据
