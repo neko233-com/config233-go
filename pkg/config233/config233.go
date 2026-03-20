@@ -143,6 +143,9 @@ func (c *Config233) getFileNameToPathMap() map[string]string {
 		if err != nil {
 			return err
 		}
+		if isHiddenDir(info) {
+			return filepath.SkipDir
+		}
 		if info.IsDir() {
 			return nil
 		}

@@ -409,6 +409,38 @@ func setSliceValueFromInterface(field reflect.Value, value interface{}, configNa
 		return nil
 	}
 
+	if str, ok := value.(string); ok {
+		trimmed := strings.TrimSpace(str)
+		if trimmed == "" {
+			field.Set(reflect.MakeSlice(field.Type(), 0, 0))
+			return nil
+		}
+
+		parsed := reflect.New(field.Type()).Interface()
+		if err := json.Unmarshal([]byte(trimmed), parsed); err == nil {
+			field.Set(reflect.ValueOf(parsed).Elem())
+			return nil
+		}
+
+		trimmed = strings.TrimPrefix(trimmed, "[")
+		trimmed = strings.TrimSuffix(trimmed, "]")
+		parts := strings.Split(trimmed, ",")
+		result := reflect.MakeSlice(field.Type(), 0, len(parts))
+		for i, part := range parts {
+			part = strings.TrimSpace(strings.Trim(part, `"'`))
+			if part == "" {
+				continue
+			}
+			elem := reflect.New(field.Type().Elem()).Elem()
+			if err := setFieldValueFromInterface(elem, part, configName, fmt.Sprintf("%s[%d]", fieldName, i)); err != nil {
+				return err
+			}
+			result = reflect.Append(result, elem)
+		}
+		field.Set(result)
+		return nil
+	}
+
 	if field.Type().Elem().Kind() == reflect.Uint8 {
 		switch v := value.(type) {
 		case []byte:
@@ -632,6 +664,9 @@ func (cm *ConfigManager233) LoadAllConfigs() error {
 	err := filepath.Walk(cm.configDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+		if isHiddenDir(info) {
+			return filepath.SkipDir
 		}
 
 		// 处理不同类型的配置文件

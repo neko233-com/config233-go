@@ -1,6 +1,7 @@
 package excel
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -259,6 +260,19 @@ func lowerFirst(s string) string {
 
 // setFieldValue 设置字段值，自动转换 string 到目标类型
 func (h *ExcelConfigHandler) setFieldValue(field reflect.Value, value string) {
+	if field.Kind() == reflect.Ptr {
+		if field.IsNil() {
+			field.Set(reflect.New(field.Type().Elem()))
+		}
+		h.setFieldValue(field.Elem(), value)
+		return
+	}
+
+	if field.Kind() == reflect.Slice {
+		h.setSliceFieldValue(field, value)
+		return
+	}
+
 	// 空字符串处理：对于数值类型设置为 0，字符串保持空，布尔���型为 false
 	if value == "" {
 		switch field.Kind() {
@@ -324,6 +338,38 @@ func (h *ExcelConfigHandler) setFieldValue(field reflect.Value, value string) {
 	default:
 		fmt.Printf("\033[31m[ERROR] 不支持的字段类型: %v\033[0m\n", field.Kind())
 	}
+}
+
+func (h *ExcelConfigHandler) setSliceFieldValue(field reflect.Value, value string) {
+	if value == "" {
+		field.Set(reflect.MakeSlice(field.Type(), 0, 0))
+		return
+	}
+
+	trimmed := strings.TrimSpace(value)
+	if trimmed != "" {
+		parsed := reflect.New(field.Type()).Interface()
+		if err := json.Unmarshal([]byte(trimmed), parsed); err == nil {
+			field.Set(reflect.ValueOf(parsed).Elem())
+			return
+		}
+	}
+
+	trimmed = strings.TrimPrefix(trimmed, "[")
+	trimmed = strings.TrimSuffix(trimmed, "]")
+	parts := strings.Split(trimmed, ",")
+	result := reflect.MakeSlice(field.Type(), 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.Trim(part, `"'`))
+		if part == "" {
+			continue
+		}
+
+		elem := reflect.New(field.Type().Elem()).Elem()
+		h.setFieldValue(elem, part)
+		result = reflect.Append(result, elem)
+	}
+	field.Set(result)
 }
 
 // convertValue 根据类型字符串转换值

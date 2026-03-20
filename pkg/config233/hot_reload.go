@@ -132,6 +132,9 @@ func (cm *ConfigManager233) batchReloadConfigs(configNames []string) {
 		if err != nil {
 			return err
 		}
+		if isHiddenDir(info) {
+			return filepath.SkipDir
+		}
 
 		if info == nil || info.IsDir() {
 			return nil
@@ -220,6 +223,9 @@ func (cm *ConfigManager233) StartWatching() error {
 	err = filepath.Walk(cm.configDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+		if isHiddenDir(info) {
+			return filepath.SkipDir
 		}
 		if info.IsDir() {
 			if addErr := watcher.Add(path); addErr != nil {

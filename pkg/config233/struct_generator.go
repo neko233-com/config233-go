@@ -104,6 +104,9 @@ func (g *StructGenerator) GenerateFromDir(dir string) error {
 		if err != nil {
 			return err
 		}
+		if isHiddenDir(info) {
+			return filepath.SkipDir
+		}
 
 		if info.IsDir() {
 			return nil
@@ -137,7 +140,16 @@ type FieldInfo struct {
 
 // excelTypeToGoType 将 Excel 类型转换为 Go 类型
 func (g *StructGenerator) excelTypeToGoType(excelType string) string {
-	switch strings.ToLower(excelType) {
+	excelType = strings.TrimSpace(strings.ToLower(excelType))
+	if strings.HasSuffix(excelType, "[]") {
+		baseType := strings.TrimSpace(strings.TrimSuffix(excelType, "[]"))
+		if baseType == "" {
+			return "[]string"
+		}
+		return "[]" + strings.TrimPrefix(g.excelTypeToGoType(baseType), "[]")
+	}
+
+	switch excelType {
 	case "int", "int32":
 		return "int"
 	case "long", "int64":
