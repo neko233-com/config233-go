@@ -351,12 +351,22 @@ func (cm *ConfigManager233) convertMapToRegisteredStruct(configName string, data
 }
 
 // setFieldValueFromInterface 从 interface{} 设置字段值，自动类型转换
-func setFieldValueFromInterface(field reflect.Value, value interface{}, _, _ string) error {
+func setFieldValueFromInterface(field reflect.Value, value interface{}, configName, fieldName string) error {
 	if value == nil {
 		return nil
 	}
 
+	if field.Kind() == reflect.Ptr {
+		if field.IsNil() {
+			field.Set(reflect.New(field.Type().Elem()))
+		}
+		return setFieldValueFromInterface(field.Elem(), value, configName, fieldName)
+	}
+
 	switch field.Kind() {
+	case reflect.Slice:
+		return setSliceValueFromInterface(field, value, configName, fieldName)
+
 	case reflect.String:
 		field.SetString(fmt.Sprintf("%v", value))
 
@@ -391,6 +401,38 @@ func setFieldValueFromInterface(field reflect.Value, value interface{}, _, _ str
 	default:
 		return fmt.Errorf("不支持的字段类型: %v", field.Kind())
 	}
+	return nil
+}
+
+func setSliceValueFromInterface(field reflect.Value, value interface{}, configName, fieldName string) error {
+	if value == nil {
+		return nil
+	}
+
+	if field.Type().Elem().Kind() == reflect.Uint8 {
+		switch v := value.(type) {
+		case []byte:
+			field.SetBytes(v)
+			return nil
+		case string:
+			field.SetBytes([]byte(v))
+			return nil
+		}
+	}
+
+	valueReflect := reflect.ValueOf(value)
+	if valueReflect.Kind() != reflect.Slice && valueReflect.Kind() != reflect.Array {
+		return fmt.Errorf("无法将 '%T' 转换为 slice", value)
+	}
+
+	result := reflect.MakeSlice(field.Type(), valueReflect.Len(), valueReflect.Len())
+	for i := 0; i < valueReflect.Len(); i++ {
+		if err := setFieldValueFromInterface(result.Index(i), valueReflect.Index(i).Interface(), configName, fmt.Sprintf("%s[%d]", fieldName, i)); err != nil {
+			return err
+		}
+	}
+
+	field.Set(result)
 	return nil
 }
 

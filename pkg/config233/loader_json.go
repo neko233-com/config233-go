@@ -3,6 +3,7 @@ package config233
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
@@ -26,12 +27,29 @@ func (cm *ConfigManager233) loadJsonConfigThreadSafe(filePath string) (err error
 			if !ok {
 				panicErr = fmt.Errorf("%v", r)
 			}
+			contentPreview := ""
+			topLevelKind := ""
+			if raw, readErr := os.ReadFile(filePath); readErr == nil {
+				text := strings.TrimSpace(string(raw))
+				if len(text) > 4096 {
+					contentPreview = text[:4096] + "...(truncated)"
+				} else {
+					contentPreview = text
+				}
+				if len(text) > 0 {
+					topLevelKind = string(text[0])
+				}
+			} else {
+				contentPreview = fmt.Sprintf("<failed to read content: %v>", readErr)
+			}
 			err = fmt.Errorf("load json config %q (%s) failed: %w", fileName, filePath, panicErr)
 			slog.Error("JSON配置加载失败",
 				"configName", fileName,
 				"path", filePath,
 				"error", err,
 				"panic", panicErr,
+				"topLevelKind", topLevelKind,
+				"contentPreview", contentPreview,
 				"stack", string(debug.Stack()),
 			)
 		}

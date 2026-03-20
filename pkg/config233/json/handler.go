@@ -34,6 +34,27 @@ func jsonContentPreview(data []byte, limit int) string {
 	return text
 }
 
+func unmarshalJSONDataList(configName, configFileFullPath string, data []byte) ([]map[string]interface{}, string, error) {
+	switch jsonTopLevelKind(data) {
+	case '{':
+		var item map[string]interface{}
+		if err := json.Unmarshal(data, &item); err != nil {
+			return nil, "object", fmt.Errorf("parse json config %q (%s) as object failed: %w", configName, configFileFullPath, err)
+		}
+		return []map[string]interface{}{item}, "object", nil
+	case '[':
+		var dataList []map[string]interface{}
+		if err := json.Unmarshal(data, &dataList); err != nil {
+			return nil, "array", fmt.Errorf("parse json config %q (%s) as array failed: %w", configName, configFileFullPath, err)
+		}
+		return dataList, "array", nil
+	case 0:
+		return nil, "empty", nil
+	default:
+		return nil, fmt.Sprintf("%q", jsonTopLevelKind(data)), fmt.Errorf("json config %q (%s) must start with object or array, got %q", configName, configFileFullPath, jsonTopLevelKind(data))
+	}
+}
+
 // TypeName 返回处理器类型名
 // 返回值:
 //
@@ -69,17 +90,10 @@ func (h *JsonConfigHandler) ReadToFrontEndDataList(configName, configFileFullPat
 		}
 	}
 
-	if jsonTopLevelKind(data) == '{' {
-		err = fmt.Errorf("json config %q (%s) must be an array of objects, but the top-level value is an object", configName, configFileFullPath)
-		slog.Error("JSON配置格式不正确", "configName", configName, "path", configFileFullPath, "error", err, "topLevelKind", "object", "contentPreview", jsonContentPreview(data, 2048))
-		panic(err)
-	}
-
-	var dataList []map[string]interface{}
-	err = json.Unmarshal(data, &dataList)
+	dataList, topLevelKind, err := unmarshalJSONDataList(configName, configFileFullPath, data)
 	if err != nil {
-		err = fmt.Errorf("parse json config %q (%s) into []map[string]interface{} failed: %w", configName, configFileFullPath, err)
-		slog.Error("解析JSON配置失败", "configName", configName, "path", configFileFullPath, "error", err, "contentPreview", jsonContentPreview(data, 2048))
+		err = fmt.Errorf("parse json config %q (%s) into data list failed: %w", configName, configFileFullPath, err)
+		slog.Error("解析JSON配置失败", "configName", configName, "path", configFileFullPath, "error", err, "topLevelKind", topLevelKind, "contentPreview", jsonContentPreview(data, 4096))
 		panic(err)
 	}
 
@@ -114,28 +128,36 @@ func (h *JsonConfigHandler) ReadConfigAndORM(typ reflect.Type, configName, confi
 		return nil
 	}
 
-	if jsonTopLevelKind(data) == '{' {
-		err = fmt.Errorf("json config %q (%s) must be an array of objects, but the top-level value is an object", configName, configFileFullPath)
-		slog.Error("JSON配置格式不正确", "configName", configName, "path", configFileFullPath, "error", err, "topLevelKind", "object", "contentPreview", jsonContentPreview(data, 2048))
+	switch jsonTopLevelKind(data) {
+	case '{':
+		instancePtr := reflect.New(typ)
+		if err := json.Unmarshal(data, instancePtr.Interface()); err != nil {
+			err = fmt.Errorf("parse json config %q (%s) into %s failed: %w", configName, configFileFullPath, typ.String(), err)
+			slog.Error("解析JSON配置失败", "configName", configName, "path", configFileFullPath, "error", err, "targetType", typ.String(), "topLevelKind", "object", "contentPreview", jsonContentPreview(data, 4096))
+			panic(err)
+		}
+		return []interface{}{instancePtr.Elem().Interface()}
+	case '[':
+		// 创建切片类型
+		sliceType := reflect.SliceOf(typ)
+		slicePtr := reflect.New(sliceType)
+		sliceVal := slicePtr.Elem()
+
+		if err := json.Unmarshal(data, slicePtr.Interface()); err != nil {
+			err = fmt.Errorf("parse json config %q (%s) into []%s failed: %w", configName, configFileFullPath, typ.String(), err)
+			slog.Error("解析JSON配置失败", "configName", configName, "path", configFileFullPath, "error", err, "targetType", typ.String(), "topLevelKind", "array", "contentPreview", jsonContentPreview(data, 4096))
+			panic(err)
+		}
+
+		result := make([]interface{}, sliceVal.Len())
+		for i := 0; i < sliceVal.Len(); i++ {
+			result[i] = sliceVal.Index(i).Interface()
+		}
+
+		return result
+	default:
+		err = fmt.Errorf("json config %q (%s) must start with object or array, got %q", configName, configFileFullPath, jsonTopLevelKind(data))
+		slog.Error("JSON配置格式不正确", "configName", configName, "path", configFileFullPath, "error", err, "contentPreview", jsonContentPreview(data, 4096))
 		panic(err)
 	}
-
-	// 创建切片类型
-	sliceType := reflect.SliceOf(typ)
-	slicePtr := reflect.New(sliceType)
-	sliceVal := slicePtr.Elem()
-
-	err = json.Unmarshal(data, slicePtr.Interface())
-	if err != nil {
-		err = fmt.Errorf("parse json config %q (%s) into []%s failed: %w", configName, configFileFullPath, typ.String(), err)
-		slog.Error("解析JSON配置失败", "configName", configName, "path", configFileFullPath, "error", err, "targetType", typ.String(), "contentPreview", jsonContentPreview(data, 2048))
-		panic(err)
-	}
-
-	result := make([]interface{}, sliceVal.Len())
-	for i := 0; i < sliceVal.Len(); i++ {
-		result[i] = sliceVal.Index(i).Interface()
-	}
-
-	return result
 }

@@ -280,6 +280,45 @@ func TestJsonConfigHandler(t *testing.T) {
 	}
 }
 
+func TestJsonConfigHandler_ObjectTopLevelAndSliceField(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "config233_json_object")
+	if err != nil {
+		t.Fatalf("创建临时目录失败: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	jsonContent := `{
+		"id": 1,
+		"name": "BuildingMainConfig",
+		"unlockOtherBuildingIds": [3, 4]
+	}`
+	jsonFile := filepath.Join(tempDir, "TestBuildingMainConfig.json")
+	if err := os.WriteFile(jsonFile, []byte(jsonContent), 0644); err != nil {
+		t.Fatalf("写入测试 JSON 失败: %v", err)
+	}
+
+	manager := config233.NewConfigManager233(tempDir)
+	config233.Instance = manager
+	config233.RegisterType[TestBuildingMainConfig]()
+
+	if err := manager.LoadAllConfigs(); err != nil {
+		t.Fatalf("加载 JSON 配置失败: %v", err)
+	}
+
+	cfg, ok := config233.GetConfigById[TestBuildingMainConfig](1)
+	if !ok || cfg == nil {
+		t.Fatalf("未找到配置 id=1")
+	}
+
+	if cfg.Name != "BuildingMainConfig" {
+		t.Fatalf("Name 读取错误，期望 BuildingMainConfig，实际 %q", cfg.Name)
+	}
+
+	if len(cfg.UnlockOtherBuildingIds) != 2 || cfg.UnlockOtherBuildingIds[0] != 3 || cfg.UnlockOtherBuildingIds[1] != 4 {
+		t.Fatalf("unlockOtherBuildingIds 读取错误，实际 %+v", cfg.UnlockOtherBuildingIds)
+	}
+}
+
 // TestExcelConfigHandler 测试 Excel 配置处理器
 func TestExcelConfigHandler(t *testing.T) {
 	handler := &excel.ExcelConfigHandler{}
@@ -485,6 +524,12 @@ func TestConfigManager233_GetKvToCsvStringList(t *testing.T) {
 type TestKvConfig struct {
 	Id  string `json:"id"`
 	Val string `json:"value"`
+}
+
+type TestBuildingMainConfig struct {
+	Id                     int    `json:"id"`
+	Name                   string `json:"name"`
+	UnlockOtherBuildingIds []int  `json:"unlockOtherBuildingIds" config233_column:"unlockOtherBuildingIds"`
 }
 
 func (c TestKvConfig) GetUid() any {

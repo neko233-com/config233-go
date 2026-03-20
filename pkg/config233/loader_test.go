@@ -3,7 +3,6 @@ package config233
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -94,7 +93,7 @@ func TestLoaderJSON_ThreadSafe(t *testing.T) {
 	t.Log("JSON 加载器线程安全测试通过")
 }
 
-// TestLoaderJSON_ThreadSafe_ObjectJSON 报文验证对象型 JSON 会返回明确错误
+// TestLoaderJSON_ThreadSafe_ObjectJSON 验证对象型 JSON 也能被兼容加载
 func TestLoaderJSON_ThreadSafe_ObjectJSON(t *testing.T) {
 	tempDir := t.TempDir()
 	destFile := filepath.Join(tempDir, "BrokenJson.json")
@@ -106,16 +105,24 @@ func TestLoaderJSON_ThreadSafe_ObjectJSON(t *testing.T) {
 	manager := NewConfigManager233(tempDir)
 	err := manager.loadJsonConfig(destFile)
 	if err == nil {
-		t.Fatal("期望对象型 JSON 返回错误，但实际为 nil")
+		// 兼容行为：对象型 JSON 被包装成单条配置加载成功
+		manager.mutex.RLock()
+		loaded, exists := manager.configs["BrokenJson"]
+		manager.mutex.RUnlock()
+		if !exists {
+			t.Fatal("对象型 JSON 加载后未写入 configs")
+		}
+		dataList, ok := loaded.([]map[string]interface{})
+		if !ok {
+			t.Fatalf("期望对象型 JSON 在前端缓存中为 []map[string]interface{}，实际为 %T", loaded)
+		}
+		if len(dataList) != 1 {
+			t.Fatalf("期望对象型 JSON 只生成 1 条数据，实际为 %d", len(dataList))
+		}
+		return
 	}
 
-	errMsg := err.Error()
-	if !strings.Contains(errMsg, "BrokenJson.json") {
-		t.Fatalf("错误信息未包含文件名: %s", errMsg)
-	}
-	if !strings.Contains(strings.ToLower(errMsg), "array of objects") {
-		t.Fatalf("错误信息未说明 JSON 需要数组结构: %s", errMsg)
-	}
+	t.Fatalf("对象型 JSON 不应报错，但实际返回: %v", err)
 }
 
 // TestLoaderTSV_ThreadSafe 测试 TSV 加载器的线程安全性
