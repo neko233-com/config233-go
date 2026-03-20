@@ -2,7 +2,9 @@ package config233
 
 import (
 	"fmt"
+	"log/slog"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 
 	"github.com/neko233-com/config233-go/pkg/config233/dto"
@@ -10,16 +12,35 @@ import (
 )
 
 // loadJsonConfigThreadSafe 线程安全的 JSON 配置加载（用于并行加载）
-func (cm *ConfigManager233) loadJsonConfigThreadSafe(filePath string) error {
+func (cm *ConfigManager233) loadJsonConfigThreadSafe(filePath string) (err error) {
 	// 创建 JSON 处理器
 	handler := &jsonhandler.JsonConfigHandler{}
 
 	// 获取文件名（不含扩展名）作为配置名
 	fileName := strings.TrimSuffix(filepath.Base(filePath), filepath.Ext(filePath))
+	slog.Info("开始加载JSON配置", "configName", fileName, "path", filePath)
+
+	defer func() {
+		if r := recover(); r != nil {
+			panicErr, ok := r.(error)
+			if !ok {
+				panicErr = fmt.Errorf("%v", r)
+			}
+			err = fmt.Errorf("load json config %q (%s) failed: %w", fileName, filePath, panicErr)
+			slog.Error("JSON配置加载失败",
+				"configName", fileName,
+				"path", filePath,
+				"error", err,
+				"panic", panicErr,
+				"stack", string(debug.Stack()),
+			)
+		}
+	}()
 
 	// 读取前端数据格式（不需要锁）
 	configDto := handler.ReadToFrontEndDataList(fileName, filePath).(*dto.FrontEndConfigDto)
 	if configDto.DataList == nil {
+		slog.Info("JSON配置为空，已跳过", "configName", fileName, "path", filePath)
 		return nil // 空文件，跳过
 	}
 

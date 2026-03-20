@@ -636,7 +636,8 @@ func (cm *ConfigManager233) LoadAllConfigs() error {
 			case ".json":
 				loadErr = cm.loadJsonConfigThreadSafe(f.path)
 				if loadErr != nil {
-					getLogger().Error(loadErr, "加载JSON配置失败", "path", f.path)
+					configName := strings.TrimSuffix(filepath.Base(f.path), filepath.Ext(f.path))
+					getLogger().Error(loadErr, "加载JSON配置失败", "path", f.path, "configName", configName)
 				}
 			case ".tsv":
 				loadErr = cm.loadTsvConfigThreadSafe(f.path)
